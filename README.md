@@ -1,8 +1,5 @@
 # Paint
 
-![Python Paint Banner](https://raw.githubusercontent.com/pedramkhademi619/Paint/main/assets/banner.png)  
-*(Replace with an actual project banner/screenshot)*
-
 ## 📝 Description
 
 `Paint` is a lightweight yet feature-rich drawing application built with Python. It provides a user-friendly interface for digital artistry, allowing users to create, edit, and save their masterpieces. Designed with simplicity and functionality in mind, `Paint` is perfect for quick sketches, detailed drawings, and educational purposes.
