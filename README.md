@@ -53,6 +53,53 @@ Python 3.8+ is required. Drag image files onto the window to open them.
 - Dark and light themes, recent files, unsaved-changes prompt, multiple windows
 - Open/save PNG, JPEG, BMP, WebP, TIFF and the layered `.pnt` project format (a zip of PNG layers + JSON)
 
+## AI image generation (local, offline)
+
+Paint can generate and edit images with **Stable Diffusion 1.5 + LCM-LoRA** running on your own GPU.
+Nothing is sent to a server. LCM makes it fast: a 512×512 image takes about 1–2 s on a recent NVIDIA card
+with 4–6 steps. Results always arrive as a **new layer**, so they are non-destructive and undoable.
+
+| Mode | What it does |
+|---|---|
+| Text → Image | Generate a picture from a prompt (clipped to the selection if there is one) |
+| Image → Image | Restyle what you see on the canvas (or inside the selection); *Strength* sets how far it may drift |
+| Inpaint selection | Select an area, describe what should be there, and the AI repaints only that area |
+
+Open the **AI** panel (right side, `Ctrl+Shift+G`). Style presets, negative prompt, steps, guidance, seed
+(random seeds are shown after a run so you can reproduce them) and Cancel are included.
+
+### Install
+
+*Windows installer* (everything bundled: app, CUDA runtime, model): build it with
+`python packaging/build.py` or the **Build Windows installer** GitHub Action (see below).
+
+*From source*:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu128   # NVIDIA GPU build
+pip install -r requirements-ai.txt
+python -m paintapp.ai.models download      # ~2.2 GB into ~/.local/share/paint/models (or %LOCALAPPDATA%\Paint\models)
+python paint.py
+```
+
+You can also press **Download model** inside the AI panel. The model is looked up in `$PAINT_MODELS_DIR`,
+then `models/` next to the program (where the installer puts it), then the per-user folder above.
+Without a GPU it still works on the CPU, but slowly. Cards under ~5.5 GB VRAM use a low-memory mode automatically.
+
+### Building the installer
+
+`packaging/build.py` downloads the model, freezes the app with PyInstaller (`packaging/paint.spec`) and
+compiles `packaging/paint.iss` with Inno Setup 6, producing `build/installer/PaintSetup-<version>.exe`
+plus `.bin` slices (keep them in the same folder; each is < 2 GiB). The workflow
+`.github/workflows/build-installer.yml` does this on `windows-latest` and attaches the files to a release
+when you push a `v*` tag.
+
+### Licences and safety
+
+The bundled weights are Stable Diffusion 1.5 (CreativeML OpenRAIL-M) and LCM-LoRA (OpenRAIL++). Read and
+accept their licences before distributing the installer. **No NSFW/safety filter is included**; add one if
+you distribute this to others.
+
 ## Shortcuts
 
 Press `F1` in the app for the full list. The most useful ones:
@@ -77,10 +124,12 @@ paintapp/
   canvas.py           view transform, rendering, input dispatch
   tools.py            all tools (freehand, shapes, fill, selection, move, ...)
   imageutil.py        NumPy flood fill and filters
+  ai/                 local Stable Diffusion: models.py (paths/download), engine.py, worker.py, panel.py
   widgets.py          icons, colour picker, layer panel, option bar
   dialogs.py          new / resize / canvas size / filter dialogs
   mainwindow.py       menus, docks, status bar, theme
-tests/test_paint.py   headless test suite
+packaging/            PyInstaller spec, Inno Setup script, build.py
+tests/                headless test suites (editor, AI panel, AI engine)
 ```
 
 ## Tests

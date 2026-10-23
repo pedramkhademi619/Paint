@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QDockWidget, Q
                              QMainWindow, QMessageBox, QToolButton, QUndoView, QWidget)
 
 from . import __version__, imageutil
+from .ai.panel import AIPanel
 from .canvas import Canvas
 from .dialogs import CanvasSizeDialog, FilterDialog, NewImageDialog, ResizeDialog, ShortcutsDialog
 from .document import FMT, FLAT_EXTS, PROJECT_EXT, Document, blank_image
@@ -130,6 +131,10 @@ class MainWindow(QMainWindow):
             grid=A("Show &Grid", self.toggle_grid, "Ctrl+'", checkable=True),
             dark=A("&Dark Theme", self.toggle_theme, checkable=True),
             fullscreen=A("&Full Screen", self.toggle_fullscreen, "F11", checkable=True),
+            ai_generate=A("&Generate Image…", self.show_ai, "Ctrl+Shift+G"),
+            ai_inpaint=A("&Repaint Selection with AI…", lambda: self.show_ai("Inpaint selection")),
+            ai_img2img=A("&Restyle Image with AI…", lambda: self.show_ai("Image → Image")),
+            ai_download=A("&Download AI Model…", lambda: self.ai_panel.download()),
             help=A("&Keyboard Shortcuts", lambda: ShortcutsDialog(self).exec_(), "F1"),
             about=A("&About Paint", self.about),
             swap=A("Swap Colours", self.state.swap_colors, "X"),
@@ -185,6 +190,9 @@ class MainWindow(QMainWindow):
         for name in imageutil.FILTERS:
             m.addAction(self._act(name + ("…" if imageutil.FILTERS[name][1] else ""),
                                   lambda n=name: self.run_filter(n)))
+        m = mb.addMenu("&AI")
+        for k in ("ai_generate", "ai_img2img", "ai_inpaint", None, "ai_download"):
+            m.addAction(a[k]) if k else m.addSeparator()
         self.view_menu = mb.addMenu("&View")
         for k in ("zoom_in", "zoom_out", "fit", "actual", None, "grid", "dark", "fullscreen", None):
             self.view_menu.addAction(a[k]) if k else self.view_menu.addSeparator()
@@ -212,6 +220,10 @@ class MainWindow(QMainWindow):
         self.tools_dock.setTitleBarWidget(QWidget())
         self.color_panel = ColorPanel(self.state)
         self.color_dock = self._dock("Colour", self.color_panel, Qt.RightDockWidgetArea)
+        self.ai_panel = AIPanel(self)
+        self.ai_dock = self._dock("AI", self.ai_panel, Qt.RightDockWidgetArea)
+        self.tabifyDockWidget(self.color_dock, self.ai_dock)
+        self.color_dock.raise_()
         self.layer_panel = LayerPanel()
         self.layer_dock = self._dock("Layers", self.layer_panel, Qt.RightDockWidgetArea)
         self.history = QUndoView()
@@ -220,7 +232,7 @@ class MainWindow(QMainWindow):
         self.layer_dock.raise_()
         self.resizeDocks([self.color_dock, self.layer_dock], [330, 380], Qt.Vertical)
         self.resizeDocks([self.color_dock], [270], Qt.Horizontal)
-        for dock in (self.color_dock, self.layer_dock, self.history_dock):
+        for dock in (self.color_dock, self.ai_dock, self.layer_dock, self.history_dock):
             self.view_menu.addAction(dock.toggleViewAction())
 
     def _dock(self, title, widget, area):
@@ -414,6 +426,7 @@ class MainWindow(QMainWindow):
             if box == QMessageBox.Cancel or (box == QMessageBox.Save and not self.save()):
                 e.ignore()
                 return
+        self.ai_panel.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("dark", self.dark)
         if self in MainWindow._windows:
@@ -518,6 +531,14 @@ class MainWindow(QMainWindow):
             FilterDialog(self, self.doc, name, func, params).exec_()
         else:
             self.doc.modify_layer(name, lambda im: imageutil.from_array(func(imageutil.to_array(im))))
+
+    def show_ai(self, mode=None):
+        self.ai_dock.show()
+        self.ai_dock.raise_()
+        if isinstance(mode, str):
+            self.ai_panel.mode.setCurrentText(mode)
+        self.ai_panel.focus_prompt()
+        self.ai_panel.refresh_state()
 
     # ------------------------------------------------------------ view
     def toggle_grid(self):
