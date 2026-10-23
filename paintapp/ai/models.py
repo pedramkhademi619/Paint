@@ -16,7 +16,7 @@ BASE_PATTERNS = [
     "vae/config.json", "vae/diffusion_pytorch_model.fp16.safetensors",
 ]
 REQUIRED_BASE = [
-    "model_index.json", "scheduler/scheduler_config.json", "tokenizer/vocab.json", "tokenizer/merges.txt",
+    "model_index.json", "scheduler/scheduler_config.json",
     "text_encoder/config.json", "unet/config.json", "vae/config.json",
 ]
 WEIGHT_NAMES = {
@@ -45,6 +45,10 @@ class ModelPaths:
     def missing(self):
         """Relative names of required files that are not on disk (empty list = complete)."""
         gone = [p for p in REQUIRED_BASE if not os.path.isfile(os.path.join(self.base, *p.split("/")))]
+        tok = os.path.join(self.base, "tokenizer")
+        has = lambda n: os.path.isfile(os.path.join(tok, n))
+        if not (has("tokenizer.json") or (has("vocab.json") and has("merges.txt"))):   # old or new transformers format
+            gone.append("tokenizer/vocab.json" if not has("vocab.json") else "tokenizer/merges.txt")
         for sub, names in WEIGHT_NAMES.items():
             if not any(os.path.isfile(os.path.join(self.base, sub, n)) for n in names):
                 gone.append("%s/%s" % (sub, names[0]))

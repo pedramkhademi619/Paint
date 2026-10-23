@@ -272,7 +272,7 @@ HAS_HF = __import__("importlib.util").util.find_spec("huggingface_hub") is not N
 class TestModels(unittest.TestCase):
     def make_install(self, root, fp16=True, lora=True, drop=None):
         base = os.path.join(root, models.BASE_DIR)
-        files = list(models.REQUIRED_BASE)
+        files = list(models.REQUIRED_BASE) + ["tokenizer/vocab.json", "tokenizer/merges.txt"]
         for sub, names in models.WEIGHT_NAMES.items():
             files.append("%s/%s" % (sub, names[0 if fp16 else 1]))
         for f in files:
@@ -297,6 +297,13 @@ class TestModels(unittest.TestCase):
             self.assertTrue(p.complete())
             self.assertIsNone(p.variant)
             self.assertFalse(p.has_lora())
+
+    def test_new_style_tokenizer_json_is_accepted(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = self.make_install(t, drop="tokenizer/vocab.json")
+            self.assertFalse(p.complete())
+            open(os.path.join(p.base, "tokenizer", "tokenizer.json"), "wb").close()
+            self.assertTrue(p.complete())
 
     def test_missing_file_is_reported(self):
         with tempfile.TemporaryDirectory() as t:
