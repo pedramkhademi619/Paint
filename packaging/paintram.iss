@@ -40,6 +40,9 @@ Source: "..\dist\Paintram\*"; DestDir: "{app}"; Excludes: "models\*"; Flags: rec
 ; model weights are already compressed, so store them as they are
 Source: "..\dist\Paintram\models\*"; DestDir: "{app}\models"; Flags: recursesubdirs createallsubdirs ignoreversion nocompression skipifsourcedoesntexist
 
+; the Microsoft Visual C++ runtime that PyTorch needs; installs silently and does nothing if it is already current
+Source: "..\build\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\Paintram.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Paintram.exe"; Tasks: desktopicon
@@ -53,6 +56,7 @@ Type: filesandordirs; Name: "{localappdata}\Paintram"
 Type: filesandordirs; Name: "{app}"
 
 [Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing the Microsoft Visual C++ runtime..."; Flags: waituntilterminated
 Filename: "{app}\Paintram.exe"; Description: "Launch Paintram"; Flags: nowait postinstall skipifsilent
 
 [Code]

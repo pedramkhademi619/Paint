@@ -76,6 +76,17 @@ def copy_docs(dist_dir):
                 % (BRAND["license"], BRAND["source_url"]))
 
 
+def fetch_vc_redist():
+    """The Visual C++ runtime installer, bundled so PyTorch starts on a clean Windows."""
+    import urllib.request
+    path = os.path.join(ROOT, "build", "redist", "vc_redist.x64.exe")
+    if not os.path.isfile(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        print("Downloading the Visual C++ runtime installer…")
+        urllib.request.urlretrieve("https://aka.ms/vs/17/release/vc_redist.x64.exe", path)
+    return path
+
+
 def frozen_executable():
     if sys.platform == "win32":
         return os.path.join(ROOT, "dist", NAME, NAME + ".exe")
@@ -150,6 +161,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     if sys.platform == "win32":
         make_ico()
+        fetch_vc_redist()
         defines = ["/DAppVersion=" + args.version] + ([] if not args.no_models else ["/DNoModels=1"])
         run([find_iscc()] + defines + ["packaging/paintram.iss"])
     else:

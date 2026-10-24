@@ -8,7 +8,7 @@ import math
 import random
 
 from PyQt5.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
-from PyQt5.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath,
+from PyQt5.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontInfo, QFontMetricsF, QLinearGradient, QPainter, QPainterPath,
                          QPen, QPolygonF, QRadialGradient, QTransform)
 from PyQt5.QtWidgets import QInputDialog
 
@@ -682,6 +682,8 @@ class TextTool(Tool):
             return
         s = c.state
         font = QFont(s.font)
+        if not QFontInfo(font).exactMatch():              # e.g. "Sans Serif" does not exist on Windows
+            font = QFontDatabase.systemFont(QFontDatabase.GeneralFont)
         font.setPixelSize(max(4, s.font_size))
         font.setBold(s.bold)
         font.setItalic(s.italic)

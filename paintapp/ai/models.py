@@ -26,6 +26,7 @@ CLIP_REPO = "openai/clip-vit-base-patch32"
 CLIP_DIR = "clip"
 CLIP_PATTERNS = ["config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json", "vocab.json",
                  "merges.txt", "special_tokens_map.json", "model.safetensors"]
+CLIP_WEIGHTS = ("model.safetensors", "pytorch_model.bin")      # the original OpenAI repo only ships the .bin
 CONTROL_REPO = "lllyasviel/control_v11p_sd15_scribble"
 CONTROL_DIR = "controlnet-scribble"
 CONTROL_PATTERNS = ["config.json", "diffusion_pytorch_model.fp16.safetensors"]
@@ -58,8 +59,8 @@ class ModelPaths:
         return "fp16" if os.path.isfile(os.path.join(self.control, CONTROL_WEIGHTS[0])) else None
 
     def has_clip(self):
-        return os.path.isfile(os.path.join(self.clip, "config.json")) and os.path.isfile(
-            os.path.join(self.clip, "model.safetensors"))
+        return os.path.isfile(os.path.join(self.clip, "config.json")) and any(
+            os.path.isfile(os.path.join(self.clip, n)) for n in CLIP_WEIGHTS)
 
     def has_control(self):
         return os.path.isfile(os.path.join(self.control, "config.json")) and any(
@@ -146,6 +147,8 @@ def download(dest=None, progress=None, smart=True):
     snapshot_download(LORA_REPO, local_dir=paths.lora_dir, allow_patterns=[LORA_FILE], tqdm_class=Bar)
     if smart:
         snapshot_download(CLIP_REPO, local_dir=paths.clip, allow_patterns=CLIP_PATTERNS, tqdm_class=Bar)
+        if not paths.has_clip():                      # no safetensors in the repo: fetch the pickle weights instead
+            snapshot_download(CLIP_REPO, local_dir=paths.clip, allow_patterns=[CLIP_WEIGHTS[1]], tqdm_class=Bar)
         snapshot_download(CONTROL_REPO, local_dir=paths.control, allow_patterns=CONTROL_PATTERNS, tqdm_class=Bar)
     gone = paths.missing()
     if smart and not paths.has_smart():

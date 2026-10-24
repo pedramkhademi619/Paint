@@ -533,8 +533,10 @@ class TestModels(unittest.TestCase):
             elif repo == models.LORA_REPO:
                 open(os.path.join(local_dir, models.LORA_FILE), "wb").close()
             elif repo == models.CLIP_REPO:
-                for n in ("config.json", "model.safetensors"):
-                    open(os.path.join(local_dir, n), "wb").close()
+                # like the real openai/clip-vit-base-patch32: small files plus pytorch_model.bin, no safetensors
+                for n in ("config.json", "pytorch_model.bin"):
+                    if n in allow_patterns or n == "config.json":
+                        open(os.path.join(local_dir, n), "wb").close()
             elif repo == models.CONTROL_REPO:
                 for n in ("config.json", models.CONTROL_WEIGHTS[0]):
                     open(os.path.join(local_dir, n), "wb").close()
@@ -547,12 +549,14 @@ class TestModels(unittest.TestCase):
             paths = models.download(t)
             self.assertTrue(paths.complete() and paths.has_lora() and paths.has_smart())
             self.assertEqual(paths.control_variant, "fp16")
-        self.assertEqual([c[0] for c in calls], [models.BASE_REPO, models.LORA_REPO, models.CLIP_REPO, models.CONTROL_REPO])
+        self.assertEqual([c[0] for c in calls],
+                         [models.BASE_REPO, models.LORA_REPO, models.CLIP_REPO, models.CLIP_REPO, models.CONTROL_REPO])
         self.assertIn("unet/diffusion_pytorch_model.fp16.safetensors", calls[0][1])
         self.assertNotIn("*.ckpt", calls[0][1])
         self.assertEqual(calls[1], (models.LORA_REPO, [models.LORA_FILE]))
         self.assertIn("model.safetensors", calls[2][1])
-        self.assertEqual(calls[3][1], models.CONTROL_PATTERNS)
+        self.assertEqual(calls[3][1], ["pytorch_model.bin"])                  # fallback when the repo has no safetensors
+        self.assertEqual(calls[4][1], models.CONTROL_PATTERNS)
 
     @unittest.skipUnless(HAS_HF, "huggingface_hub not installed")
     def test_no_smart_download_skips_clip_and_controlnet(self):

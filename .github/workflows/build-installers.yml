@@ -70,6 +70,12 @@ jobs:
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cu128
           pip install -r requirements-ai.txt pyinstaller cython setuptools
+      - name: Microsoft Visual C++ runtime (current PyTorch fails to load c10.dll without a recent one)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile vc_redist.x64.exe
+          Start-Process .\vc_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait
+          python -c "import torch; print('torch', torch.__version__, 'imports fine')"
       - name: Full test suite including the real AI engine
         shell: bash
         run: python -m unittest discover -s tests

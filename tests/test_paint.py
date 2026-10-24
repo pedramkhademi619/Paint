@@ -7,7 +7,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QEvent, QPointF, QRect, QSettings, Qt  # noqa: E402
-from PyQt5.QtGui import QColor, QGuiApplication, QMouseEvent, QPainter, QPainterPath  # noqa: E402
+from PyQt5.QtGui import QColor, QFontDatabase, QGuiApplication, QMouseEvent, QPainter, QPainterPath  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QInputDialog  # noqa: E402
 
@@ -386,6 +386,7 @@ class TestTools(EditorCase):
         self.click((100, 100), mods=Qt.AltModifier)
         self.assertEqual(self.state.primary.name(), "#010203")
 
+    @unittest.skipUnless(QFontDatabase().families(), "no fonts installed (headless runner)")
     def test_text_tool(self):
         orig = QInputDialog.getMultiLineText
         QInputDialog.getMultiLineText = staticmethod(lambda *a, **k: ("Hello\nWorld", True))
