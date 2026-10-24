@@ -1,0 +1,39 @@
+name: Probe Windows PyTorch freeze
+
+# Diagnostic only: freezes a 5-line program that imports torch and tries several fixes for
+# "WinError 1114 ... c10.dll" in the frozen bundle. Runs when this file or packaging/probe/** changes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/hopeful-newton-ge1ite"]
+    paths:
+      - ".github/workflows/probe-windows.yml"
+      - "packaging/probe/**"
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install torch (CUDA build) and PyInstaller
+        shell: bash
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cu128
+          pip install pyinstaller
+      - name: Microsoft Visual C++ runtime
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile vc_redist.x64.exe
+          Start-Process .\vc_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait
+      - name: Plain Python can import torch
+        run: python -c "import torch; print('torch', torch.__version__)"
+      - name: Freeze the probe
+        run: pyinstaller --noconfirm --clean --console --name probe packaging/probe/probe.py
+      - name: Try the variants
+        shell: pwsh
+        run: ./packaging/probe/variants.ps1

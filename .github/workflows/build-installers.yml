@@ -10,6 +10,9 @@ on:
   push:
     tags: ["v*"]
     branches: ["claude/hopeful-newton-ge1ite"]     # also builds on every push to the working branch
+    paths-ignore:
+      - "packaging/probe/**"
+      - ".github/workflows/probe-windows.yml"
 
 env:
   QT_QPA_PLATFORM: offscreen

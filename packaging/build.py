@@ -87,6 +87,27 @@ def fetch_vc_redist():
     return path
 
 
+VC_RUNTIME = {"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+              "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "concrt140.dll", "vcomp140.dll"}
+
+
+def refresh_vc_runtime(dist_dir):
+    """Replace the Visual C++ runtime DLLs PyInstaller copied (often old) with the current system ones.
+
+    Current PyTorch fails with `WinError 1114` in c10.dll when it meets an older msvcp140/vcruntime140 than
+    the one it was built with, and the bundled folder is searched before System32.
+    """
+    system32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    replaced = []
+    for base, _dirs, files in os.walk(os.path.join(dist_dir, "_internal")):
+        for name in files:
+            source = os.path.join(system32, name.lower())
+            if name.lower() in VC_RUNTIME and os.path.isfile(source):
+                shutil.copy2(source, os.path.join(base, name))
+                replaced.append(os.path.relpath(os.path.join(base, name), dist_dir))
+    print("Refreshed Visual C++ runtime DLLs from System32:", replaced or "none found")
+
+
 def frozen_executable():
     if sys.platform == "win32":
         return os.path.join(ROOT, "dist", NAME, NAME + ".exe")
@@ -170,6 +191,8 @@ def main():
         raise SystemExit("%s missing: the PyInstaller step failed or was skipped" % exe)
 
     copy_docs(os.path.join(ROOT, "dist", NAME))
+    if sys.platform == "win32":
+        refresh_vc_runtime(os.path.join(ROOT, "dist", NAME))
     if not args.no_models:
         # put the models where the frozen program looks for them, then prove it finds them
         target = os.path.join(ROOT, "dist", NAME, "models")
