@@ -1,3 +1,3 @@
-"""Paint - a layered raster editor built on PyQt5."""
+"""Paintram - layered raster editor with local AI, built on PyQt5."""
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"

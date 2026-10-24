@@ -1,6 +1,7 @@
 """UI building blocks: vector icons, colour picker, layer panel, option bar."""
 import math
 
+from PyQt5 import sip
 from PyQt5.QtCore import QPointF, QRectF, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (QBrush, QColor, QFont, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen,
                          QPixmap, QPolygonF)
@@ -60,6 +61,21 @@ def i_airbrush(p, c):
     for x, y, r in [(6, 7, 1.3), (11, 5, 1), (15, 8, 1.4), (9, 11, 1.2), (14, 13, 1), (18, 12, 1),
                     (6, 15, 1), (11, 17, 1.4), (16, 18, 1.1), (19, 6, 0.9), (4, 11, 0.9), (20, 16, 0.9)]:
         p.drawEllipse(QPointF(x, y), r, r)
+
+
+def i_smartpen(p, c):
+    _stroke(p, c, 1.7)
+    h = QPainterPath()                                   # a tidy heart plus a sparkle = "it cleans up your shapes"
+    h.moveTo(9, 20)
+    h.cubicTo(1.5, 14.5, 2.5, 8, 7, 7.5)
+    h.cubicTo(8.7, 7.4, 9, 8.6, 9, 9.5)
+    h.cubicTo(9, 8.6, 9.4, 7.4, 11, 7.5)
+    h.cubicTo(15.5, 8, 16.5, 14.5, 9, 20)
+    p.drawPath(h)
+    _stroke(p, c, 1.4)
+    for x, y, r in ((18.5, 5.5, 3.2), (21, 12, 1.8)):
+        p.drawLine(QPointF(x - r, y), QPointF(x + r, y))
+        p.drawLine(QPointF(x, y - r), QPointF(x, y + r))
 
 
 def i_line(p, c):
@@ -283,7 +299,7 @@ def i_swap(p, c):
 
 
 ICONS = {
-    "brush": i_brush, "pencil": i_pencil, "eraser": i_eraser, "airbrush": i_airbrush, "line": i_line,
+    "brush": i_brush, "smartpen": i_smartpen, "pencil": i_pencil, "eraser": i_eraser, "airbrush": i_airbrush, "line": i_line,
     "arrow": i_arrow, "rect": i_rect, "roundrect": i_roundrect, "ellipse": i_ellipse, "triangle": i_triangle,
     "diamond": i_diamond, "star": i_star, "heart": i_heart, "polygon": i_polygon, "fill": i_fill,
     "gradient": i_gradient, "picker": i_picker, "text": i_text, "select_rect": i_select_rect,
@@ -722,7 +738,8 @@ class LayerPanel(QWidget):
             b.setIcon(make(key))
 
     def schedule(self):
-        self._timer.start()
+        if not sip.isdeleted(self) and not sip.isdeleted(self._timer):
+            self._timer.start()
 
     def _thumb(self, layer):
         key = layer.image.cacheKey()
@@ -752,8 +769,16 @@ class LayerPanel(QWidget):
         return QIcon(px)
 
     def rebuild(self):
+        """Refresh the list. Runs from a coalescing timer, so it can fire while the window is being torn down."""
+        try:
+            self._rebuild()
+        except RuntimeError:
+            if not (sip.isdeleted(self) or sip.isdeleted(self.list)):
+                raise                               # a real bug, not a dying widget
+
+    def _rebuild(self):
         doc = self.doc
-        if doc is None:
+        if doc is None or sip.isdeleted(self) or sip.isdeleted(self.list):      # the window may already be closing
             return
         self.list.blockSignals(True)
         self.list.clear()

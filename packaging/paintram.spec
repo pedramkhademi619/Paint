@@ -1,4 +1,4 @@
-# PyInstaller spec: `pyinstaller packaging/paint.spec --noconfirm` (run from the repo root)
+# PyInstaller spec: `pyinstaller packaging/paintram.spec --noconfirm` (run from the repo root)
 import os
 
 from PyInstaller.utils.hooks import collect_all
@@ -13,7 +13,7 @@ for pkg in ("torch", "diffusers", "transformers", "accelerate", "safetensors", "
     hiddenimports += h
 
 a = Analysis(
-    [os.path.join(ROOT, "paint.py")],
+    [os.path.join(ROOT, "paintram.py")],
     pathex=[ROOT],
     datas=datas,
     binaries=binaries,
@@ -21,5 +21,5 @@ a = Analysis(
     excludes=["tkinter", "matplotlib", "pytest", "IPython", "tensorboard"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Paint", console=False, icon=os.path.join(ROOT, "icons", "paint.png"))
-coll = COLLECT(exe, a.binaries, a.datas, name="Paint", upx=False)
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Paintram", console=False, icon=os.path.join(ROOT, "icons", "paint.png"))
+coll = COLLECT(exe, a.binaries, a.datas, name="Paintram", upx=False)

@@ -41,11 +41,12 @@ def make_ico():
 
 
 def main():
+    from paintapp import __version__
     from paintapp.ai import models
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-models", action="store_true", help="reuse build/models")
-    ap.add_argument("--skip-bundle", action="store_true", help="reuse dist/Paint")
-    ap.add_argument("--version", default="2.0.0")
+    ap.add_argument("--skip-bundle", action="store_true", help="reuse dist/Paintram")
+    ap.add_argument("--version", default=__version__)
     args = ap.parse_args()
 
     models_dir = os.path.join(ROOT, "build", "models")
@@ -57,12 +58,12 @@ def main():
         raise SystemExit("Model files are incomplete in %s" % models_dir)
 
     if not args.skip_bundle:
-        run([sys.executable, "-m", "PyInstaller", "packaging/paint.spec", "--noconfirm", "--clean"])
-    if not os.path.isfile(os.path.join(ROOT, "dist", "Paint", "Paint.exe")):
-        raise SystemExit("dist/Paint/Paint.exe missing: PyInstaller step failed or was skipped")
+        run([sys.executable, "-m", "PyInstaller", "packaging/paintram.spec", "--noconfirm", "--clean"])
+    if not os.path.isfile(os.path.join(ROOT, "dist", "Paintram", "Paintram.exe")):
+        raise SystemExit("dist/Paintramram/Paintram.exe missing: PyInstaller step failed or was skipped")
 
     make_ico()
-    run([find_iscc(), "/DAppVersion=" + args.version, "packaging/paint.iss"])
+    run([find_iscc(), "/DAppVersion=" + args.version, "packaging/paintram.iss"])
     print("\nInstaller written to build/installer/")
 
 

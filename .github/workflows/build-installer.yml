@@ -1,4 +1,4 @@
-name: Build Windows installer
+name: Build Paintram Windows installer
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
         run: python packaging/build.py --version "${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: PaintSetup
+          name: PaintramSetup
           path: build/installer/*
           compression-level: 0
       - name: Attach to release

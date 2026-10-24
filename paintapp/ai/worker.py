@@ -23,6 +23,7 @@ class JobThread(QThread):
         try:
             if not self.engine.loaded:
                 self.engine.load(self.status.emit)
+            self.engine.on_info = self.status.emit
             self.status.emit("Generating…")
             image, seed = self.engine.run(self.job, self.progress.emit, lambda: self._cancel)
         except Cancelled:
@@ -38,6 +39,25 @@ class JobThread(QThread):
         if "out of memory" in text.lower():
             text += "\n\nThe GPU ran out of memory. Try a smaller size (512) or close other GPU programs."
         return text
+
+
+class RecognizeThread(QThread):
+    status = pyqtSignal(str)
+    done = pyqtSignal(object)               # [(label, probability), ...]
+    failed = pyqtSignal(str)
+
+    def __init__(self, engine, image, parent=None):
+        super().__init__(parent)
+        self.engine, self.image = engine, image
+
+    def run(self):
+        try:
+            if not self.engine.loaded:
+                self.engine.load(self.status.emit)
+            self.status.emit("Looking at your drawing…")
+            self.done.emit(self.engine.recognize(self.image))
+        except Exception as exc:
+            self.failed.emit("%s: %s" % (type(exc).__name__, exc))
 
 
 class DownloadThread(QThread):

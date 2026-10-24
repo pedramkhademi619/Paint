@@ -12,7 +12,7 @@ from PyQt5.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, 
                          QPen, QPolygonF, QRadialGradient, QTransform)
 from PyQt5.QtWidgets import QInputDialog
 
-from . import imageutil
+from . import imageutil, shapefit
 from .document import blank_image
 
 DASH_STYLES = {"Solid": Qt.SolidLine, "Dash": Qt.DashLine, "Dot": Qt.DotLine, "Dash-Dot": Qt.DashDotLine}
@@ -908,8 +908,133 @@ class ZoomTool(Tool):
         self.c.zoom_to(self.c.zoom * (0.5 if out else 2.0), p)
 
 
+class SmartPenTool(Tool):
+    """Draw roughly; line, circle, ellipse, rectangle, triangle, diamond, star and heart snap to a clean shape."""
+    key, label, shortcut = "smartpen", "Smart pen", "S"
+    options = ("size", "opacity", "fill_mode", "dash", "antialias")
+    brush_cursor = True
+    HOLD_MS = 450
+    hint = ("Draw any shape roughly (circle, heart, star, rectangle, triangle, line…): it snaps to a clean one. "
+            "Hold still to preview, hold Alt when releasing to keep your own line.")
+
+    def __init__(self, canvas):
+        super().__init__(canvas)
+        self.drag = False
+        self.snapped = None
+        self.timer = QTimer(canvas)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._hold)
+
+    # -- stroke life-cycle
+    def press(self, p, button, mods):
+        c = self.c
+        if not c.can_paint():
+            return
+        self.button = button
+        self.points = [(p.x(), p.y())]
+        self.snapped = None
+        self.drag = True
+        c.begin_stroke(opacity=c.state.opacity / 100.0)
+        main = self.colors()[0]
+        painter = c.stroke_painter()
+        painter.setPen(self._pen(main))
+        painter.drawPoint(p)
+        painter.end()
+        w = c.state.size + 3
+        c.touch(QRectF(p.x() - w, p.y() - w, 2 * w, 2 * w).toAlignedRect())
+        self.last = p
+        self.timer.start(self.HOLD_MS)
+
+    def move(self, p, mods):
+        if not self.drag or self.snapped is not None:
+            return                                          # a previewed shape stays put until release
+        self.points.append((p.x(), p.y()))
+        c = self.c
+        painter = c.stroke_painter()
+        painter.setPen(self._pen(self.colors()[0]))
+        painter.drawLine(self.last, p)
+        painter.end()
+        w = c.state.size + 3
+        c.touch(QRectF(self.last, p).normalized().adjusted(-w, -w, w, w).toAlignedRect())
+        self.last = p
+        self.timer.start(self.HOLD_MS)
+
+    def release(self, p, mods):
+        if not self.drag:
+            return
+        self.timer.stop()
+        self.drag = False
+        keep_raw = bool(mods & Qt.AltModifier)
+        if self.snapped is None and not keep_raw:
+            if (p.x(), p.y()) != self.points[-1]:
+                self.points.append((p.x(), p.y()))
+            shape = shapefit.recognize(self.points)
+            if shape is not None:
+                self.snapped = shape
+                self._render(shape)
+        text = "Smart shape: %s" % self.snapped.label if self.snapped is not None and not keep_raw else "Smart pen stroke"
+        if self.snapped is not None and keep_raw:
+            text = "Smart pen stroke"
+        self.c.commit_stroke(text)
+        self.c.state.remember_color(self.colors()[0])
+        self.snapped = None
+
+    def deactivate(self):
+        self.timer.stop()
+        if self.drag:
+            self.drag = False
+            self.c.cancel_stroke()
+
+    # -- helpers
+    def colors(self):
+        s = self.c.state
+        return (s.primary, s.secondary) if self.button == Qt.LeftButton else (s.secondary, s.primary)
+
+    def _pen(self, color, dash=Qt.SolidLine):
+        return QPen(color, max(1, self.c.state.size), dash, Qt.RoundCap, Qt.RoundJoin)
+
+    def _hold(self):
+        """Pointer rested: show what the stroke will become (release to accept, keep drawing is ignored)."""
+        if not self.drag or self.snapped is not None or len(self.points) < 4:
+            return
+        shape = shapefit.recognize(self.points)
+        if shape is not None:
+            self.snapped = shape
+            self._render(shape)
+            self.c.message.emit("Recognised: %s. Release to keep it, or press Alt while releasing to undo the snap." % shape.label)
+
+    def _render(self, shape):
+        c, s = self.c, self.c.state
+        c.clear_stroke()
+        painter = c.stroke_painter()
+        main, other = self.colors()
+        pen = self._pen(main, DASH_STYLES.get(s.dash, Qt.SolidLine))
+        brush = Qt.NoBrush
+        if shape.closed:
+            if s.fill_mode == "Fill":
+                pen, brush = Qt.NoPen, QBrush(main)
+            elif s.fill_mode == "Outline + Fill":
+                brush = QBrush(other)
+        painter.setPen(pen)
+        painter.setBrush(brush)
+        if shape.kind in ("ellipse", "circle"):
+            cx, cy = shape.center
+            painter.translate(cx, cy)
+            painter.rotate(shape.angle)
+            painter.drawEllipse(QPointF(0, 0), shape.radii[0], shape.radii[1])
+            reach = max(shape.radii) + 2
+            bounds = QRectF(cx - reach, cy - reach, 2 * reach, 2 * reach)
+        else:
+            poly = QPolygonF([QPointF(x, y) for x, y in shape.points])
+            painter.drawPolygon(poly) if shape.closed else painter.drawPolyline(poly)
+            bounds = poly.boundingRect()
+        painter.end()
+        w = max(1, s.size) + 4
+        c.touch(bounds.adjusted(-w, -w, w, w).toAlignedRect())
+
+
 TOOL_CLASSES = [
-    BrushTool, PencilTool, EraserTool, AirbrushTool,
+    BrushTool, PencilTool, EraserTool, AirbrushTool, SmartPenTool,
     LineTool, ArrowTool, RectTool, RoundRectTool, EllipseTool, TriangleTool, DiamondTool, StarTool, HeartTool,
     PolygonTool, FillTool, GradientTool, PickerTool, TextTool,
     RectSelectTool, EllipseSelectTool, LassoTool, WandTool, MoveTool, HandTool, ZoomTool,

@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QDockWidget, Q
 
 from . import __version__, imageutil
 from .ai.panel import AIPanel
+from . import brand
 from .canvas import Canvas
 from .dialogs import CanvasSizeDialog, FilterDialog, NewImageDialog, ResizeDialog, ShortcutsDialog
 from .document import FMT, FLAT_EXTS, PROJECT_EXT, Document, blank_image
@@ -17,7 +18,7 @@ from .tools import TOOL_CLASSES
 from .widgets import ColorPanel, LayerPanel, OptionBar, make_icon
 
 OPEN_FILTER = "Images and projects (*.pnt *.png *.jpg *.jpeg *.bmp *.webp *.tif *.tiff);;All files (*)"
-SAVE_FILTERS = {"Paint project (*.pnt)": "pnt", "PNG image (*.png)": "png", "JPEG image (*.jpg *.jpeg)": "jpg",
+SAVE_FILTERS = {"Paintram project (*.pnt)": "pnt", "PNG image (*.png)": "png", "JPEG image (*.jpg *.jpeg)": "jpg",
                 "BMP image (*.bmp)": "bmp", "WebP image (*.webp)": "webp"}
 MAX_RECENT_FILES = 8
 ICON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "icons", "paint.png")
@@ -49,7 +50,7 @@ class MainWindow(QMainWindow):
     def __init__(self, doc=None, settings=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.settings = settings if settings is not None else QSettings("PaintApp", "Paint")
+        self.settings = settings if settings is not None else QSettings(brand.ORG, brand.NAME)
         self.state = AppState()
         self.dark = self.settings.value("dark", True, type=bool)
         self._stack = None
@@ -136,7 +137,7 @@ class MainWindow(QMainWindow):
             ai_img2img=A("&Restyle Image with AI…", lambda: self.show_ai("Image → Image")),
             ai_download=A("&Download AI Model…", lambda: self.ai_panel.download()),
             help=A("&Keyboard Shortcuts", lambda: ShortcutsDialog(self).exec_(), "F1"),
-            about=A("&About Paint", self.about),
+            about=A("&About " + brand.NAME, self.about),
             swap=A("Swap Colours", self.state.swap_colors, "X"),
             reset=A("Default Colours", self.state.reset_colors, "D"),
             smaller=A("Smaller Brush", lambda: self.step_size(-1), "["),
@@ -304,7 +305,7 @@ class MainWindow(QMainWindow):
         self.a["layer_lock"].setChecked(self.doc.active_layer.locked)
 
     def _update_title(self):
-        self.setWindowTitle("%s[*] — Paint" % self.doc.name)
+        self.setWindowTitle("%s[*] — %s" % (self.doc.name, brand.NAME))
         self.setWindowModified(self.doc.modified)
 
     def _update_selection(self):
@@ -559,17 +560,29 @@ class MainWindow(QMainWindow):
         self.showFullScreen() if self.a["fullscreen"].isChecked() else self.showNormal()
 
     def about(self):
-        QMessageBox.about(self, "About Paint", "<h3>Paint %s</h3><p>A layered raster editor built with PyQt5.</p>"
+        QMessageBox.about(self, "About " + brand.NAME, "<h3>%s %s</h3><p>%s.</p>"
                           "<p>Layers, blend modes, selections, 25 tools, filters, symmetry painting, "
-                          "unlimited-style history and a project format that keeps your layers.</p>" % __version__)
+                          "local AI image generation and a project format that keeps your layers.</p>"
+                          % (brand.NAME, __version__, brand.TAGLINE))
+
+
+def configure_portable(root):
+    """Keep QSettings in <root>/config/*.ini instead of the registry / ~/.config / ~/Library."""
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, os.path.join(root, "config"))
 
 
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
+    if "--version" in argv[1:]:
+        print(brand.NAME, __version__)
+        return 0
+    if os.environ.get("PAINTRAM_PORTABLE_DIR"):
+        configure_portable(os.environ["PAINTRAM_PORTABLE_DIR"])
     app = QApplication(argv)
-    app.setApplicationName("Paint")
-    app.setOrganizationName("PaintApp")
-    dark = QSettings("PaintApp", "Paint").value("dark", True, type=bool)
+    app.setApplicationName(brand.NAME)
+    app.setOrganizationName(brand.ORG)
+    dark = QSettings(brand.ORG, brand.NAME).value("dark", True, type=bool)
     apply_theme(app, dark)
     win = MainWindow()
     win.show()

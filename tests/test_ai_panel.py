@@ -27,9 +27,16 @@ except ImportError:                                     # pragma: no cover
 
 class FakeEngine:
     loaded = True
+    smart_ready = True
 
     def __init__(self, delay=0.0, fail=None):
         self.jobs, self.delay, self.fail = [], delay, fail
+        self.recognized, self.last_guesses, self.last_label, self.on_info = [], [], "", None
+
+    def recognize(self, pil, top=3):
+        self.recognized.append(pil)
+        self.last_guesses = [("cat", 0.7), ("dog", 0.2), ("fox", 0.1)]
+        return self.last_guesses
 
     def load(self, status=None):
         pass
@@ -47,6 +54,11 @@ class FakeEngine:
                 progress(i + 1, job.steps)
         if self.fail:
             raise RuntimeError(self.fail)
+        if job.mode == "sketch":
+            self.last_label = job.subject or self.recognize(job.sketch)[0][0]
+            if not job.subject and self.on_info:
+                self.on_info("Looks like: cat (70%)")
+            return Image.new("RGB", job.control.size, (10, 200, 30)), job.seed
         return Image.new("RGB", (job.width, job.height), (10, 200, 30)), job.seed
 
 
@@ -243,6 +255,198 @@ class TestPanel(PanelCase):
         self.assertEqual(len(self.doc.layers), 2)
 
 
+class TestSketchToNeat(PanelCase):
+    def draw_house(self, layer=None, offset=(0, 0)):
+        from PyQt5.QtGui import QPainter, QPen
+        layer = layer or self.doc.active_layer
+        p = QPainter(layer.image)
+        p.setPen(QPen(QColor("black"), 5))
+        ox, oy = offset
+        p.drawRect(100 + ox, 120 + oy, 120, 90)
+        p.drawLine(100 + ox, 120 + oy, 160 + ox, 70 + oy)
+        p.drawLine(160 + ox, 70 + oy, 220 + ox, 120 + oy)
+        p.end()
+        self.doc.invalidate()
+
+    def sketch_mode(self):
+        self.panel.mode.setCurrentText("Sketch → Neat")
+
+    def test_mode_shows_its_own_controls(self):
+        self.assertFalse(self.panel.sketch_box.isVisibleTo(self.panel))
+        self.sketch_mode()
+        self.assertTrue(self.panel.sketch_box.isVisibleTo(self.panel))
+
+    def test_recognises_then_redraws_and_hides_the_sketch(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.run_job()
+        job = self.fake.jobs[0]
+        self.assertEqual(job.mode, "sketch")
+        self.assertEqual(job.subject, "")                                   # auto-detect
+        self.assertEqual(len(self.doc.layers), 3)
+        neat = self.doc.layers[2]
+        self.assertEqual(neat.name, "AI · neat cat")
+        self.assertFalse(self.doc.layers[1].visible)                        # the sketch is hidden
+        self.assertEqual(neat.image.pixelColor(160, 160).name(), "#0ac81e")
+        self.assertEqual(neat.image.pixelColor(5, 5).alpha(), 0)            # only the sketch's area is replaced
+        self.assertIn("drawn as: cat", self.panel.status.text())
+        self.assertEqual([self.panel.subject.itemText(i) for i in range(self.panel.subject.count())],
+                         ["cat", "dog", "fox"])                              # other guesses offered for a quick fix
+        self.doc.undo_stack.undo()                                          # one step undoes layer + hiding
+        self.assertEqual(len(self.doc.layers), 2)
+        self.assertTrue(self.doc.layers[1].visible)
+
+    def test_control_and_clip_images_have_the_right_polarity_and_size(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.run_job()
+        job = self.fake.jobs[0]
+        self.assertEqual(job.control.size, (job.width, job.height))
+        self.assertEqual(job.control.getpixel((0, 0)), (0, 0, 0))            # black background
+        self.assertTrue(any(job.control.getpixel((x, y)) == (255, 255, 255)
+                            for x in range(0, job.width, 3) for y in range(0, job.height, 3)))   # white lines
+        self.assertEqual(job.sketch.size, (224, 224))
+        self.assertEqual(job.sketch.getpixel((0, 0)), (255, 255, 255))       # CLIP sees black on white
+        self.assertEqual(max(job.width, job.height), 512)
+        self.assertEqual((job.width % 8, job.height % 8), (0, 0))
+
+    def test_typed_subject_skips_auto_detection_and_goes_into_the_layer_name(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.panel.subject.setEditText("cottage")
+        self.run_job()
+        self.assertEqual(self.fake.jobs[0].subject, "cottage")
+        self.assertEqual(self.fake.recognized, [])
+        self.assertEqual(self.doc.layers[2].name, "AI · neat cottage")
+
+    def test_style_extra_prompt_and_follow_strength_reach_the_job(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.panel.neat_style.setCurrentText("Flat vector icon")
+        self.panel.prompt.setPlainText("blue roof")
+        self.panel.negative.setPlainText("people")
+        self.panel.follow.setValue(120)
+        self.run_job()
+        job = self.fake.jobs[0]
+        self.assertIn("{subject}", job.prompt)
+        self.assertIn("flat vector icon", job.prompt)
+        self.assertTrue(job.prompt.endswith(", blue roof"))
+        self.assertIn("blurry", job.negative)
+        self.assertTrue(job.negative.endswith("people"))
+        self.assertAlmostEqual(job.control_scale, 1.2)
+
+    def test_keep_sketch_visible_when_unchecked(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.panel.hide_sketch.setChecked(False)
+        self.run_job()
+        self.assertTrue(self.doc.layers[1].visible)
+
+    def test_works_on_an_opaque_background_layer_too(self):
+        self.draw_house()                                                   # black lines on the white Background
+        self.sketch_mode()
+        self.run_job()
+        self.assertEqual(len(self.doc.layers), 2)
+        self.assertFalse(self.doc.layers[0].visible)
+
+    def test_empty_drawing_is_reported(self):
+        self.doc.add_layer("Empty")
+        self.sketch_mode()
+        self.run_job()
+        self.assertEqual(self.fake.jobs, [])
+        self.assertIn("Draw something", self.panel.status.text())
+
+    def test_selection_limits_what_is_recognised(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.draw_house(offset=(-90, 90))
+        self.select(80, 60, 160, 170)                                        # only the first house
+        self.sketch_mode()
+        self.run_job()
+        job = self.fake.jobs[0]
+        region_h = self.doc.layers[2].image
+        covered = [(x, y) for x in range(0, 400, 4) for y in range(0, 300, 4) if region_h.pixelColor(x, y).alpha()]
+        self.assertTrue(covered)
+        self.assertLess(max(x for x, _y in covered), 270)
+        self.assertGreater(min(x for x, _y in covered), 70)
+        self.assertEqual(self.doc.layers[1].visible, False)
+
+    def test_what_is_this_button_lists_guesses_without_generating(self):
+        self.doc.add_layer("Sketch")
+        self.draw_house()
+        self.sketch_mode()
+        self.panel.recognize()
+        deadline = time.time() + 20
+        while self.panel.rec_thread is not None and time.time() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+        self.assertEqual(len(self.fake.recognized), 1)
+        self.assertEqual(self.fake.jobs, [])
+        self.assertEqual(self.panel.subject.count(), 3)
+        self.assertIn("Looks like: cat (70%)", self.panel.status.text())
+        self.assertEqual(len(self.doc.layers), 2)
+
+    def test_real_engine_path_asks_for_the_smart_models(self):
+        with tempfile.TemporaryDirectory() as t, mock.patch.dict(os.environ, {"PAINTRAM_MODELS_DIR": t}), \
+                mock.patch("paintapp.ai.engine.available", return_value=(True, "")):
+            TestModels().make_install(t)                                    # base model only
+            panel = AIPanel(self.win)
+            ok, why = panel.ready("sketch")
+            self.assertFalse(ok)
+            self.assertIn("sketch recognition models", why)
+            self.assertTrue(panel.ready("txt2img")[0])
+            panel.shutdown()
+
+
+class TestSketchHelpers(unittest.TestCase):
+    def test_ink_mask_on_transparent_and_opaque_layers(self):
+        from PyQt5.QtGui import QImage, QPainter
+        from paintapp.ai import sketch
+        a = QImage(40, 30, QImage.Format_ARGB32_Premultiplied)
+        a.fill(Qt.transparent)
+        p = QPainter(a)
+        p.fillRect(5, 5, 10, 4, QColor("red"))
+        p.end()
+        m = sketch.ink_mask(a)
+        self.assertEqual((m.shape, int(m.sum())), ((30, 40), 40))
+        b = QImage(40, 30, QImage.Format_ARGB32_Premultiplied)
+        b.fill(QColor("white"))
+        p = QPainter(b)
+        p.fillRect(5, 5, 10, 4, QColor("black"))
+        p.end()
+        self.assertEqual(int(sketch.ink_mask(b).sum()), 40)
+
+    def test_bounding_rect_has_padding_and_empty_is_none(self):
+        import numpy as np
+        from paintapp.ai import sketch
+        m = np.zeros((300, 400), bool)
+        self.assertIsNone(sketch.bounding_rect(m))
+        m[100:150, 200:300] = True
+        r = sketch.bounding_rect(m)
+        self.assertTrue(r.contains(QRect(200, 100, 100, 50)))
+        self.assertGreater(r.width(), 100)
+        self.assertTrue(QRect(0, 0, 400, 300).contains(r))
+
+    def test_thin_lines_are_thickened_and_images_are_well_formed(self):
+        import numpy as np
+        from paintapp.ai import sketch
+        m = np.zeros((200, 300), bool)
+        m[100, 20:280] = True                                              # 1px line
+        ctl = sketch.control_image(m, 512, 336)
+        arr = np.asarray(ctl)
+        self.assertEqual(ctl.size, (512, 336))
+        self.assertGreaterEqual(int((arr[..., 0] > 128).any(axis=1).sum()), 3)      # at least 3px tall now
+        clip = sketch.clip_image(m)
+        self.assertEqual(clip.size, (224, 224))
+        self.assertEqual(clip.getpixel((0, 0)), (255, 255, 255))
+
+
 class TestPureHelpers(unittest.TestCase):
     def test_snap_and_fit(self):
         self.assertEqual(eng.snap(501), 504)
@@ -314,32 +518,63 @@ class TestModels(unittest.TestCase):
     def test_search_order_prefers_env_then_app_then_user(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             self.make_install(b)
-            with mock.patch.dict(os.environ, {"PAINT_MODELS_DIR": a}):
+            with mock.patch.dict(os.environ, {"PAINTRAM_MODELS_DIR": a}):
                 self.assertEqual(models.candidate_dirs()[0], a)
                 self.assertIsNone(models.find_models() if not os.path.isdir(models.candidate_dirs()[1]) else None)
-            with mock.patch.dict(os.environ, {"PAINT_MODELS_DIR": b}):
+            with mock.patch.dict(os.environ, {"PAINTRAM_MODELS_DIR": b}):
                 self.assertEqual(models.find_models().root, b)
+
+    def _fake_snapshot(self, calls):
+        def fake_snapshot(repo, local_dir, allow_patterns, tqdm_class):
+            calls.append((repo, allow_patterns))
+            os.makedirs(local_dir, exist_ok=True)
+            if repo == models.BASE_REPO:
+                self.make_install(os.path.dirname(local_dir), lora=False)
+            elif repo == models.LORA_REPO:
+                open(os.path.join(local_dir, models.LORA_FILE), "wb").close()
+            elif repo == models.CLIP_REPO:
+                for n in ("config.json", "model.safetensors"):
+                    open(os.path.join(local_dir, n), "wb").close()
+            elif repo == models.CONTROL_REPO:
+                for n in ("config.json", models.CONTROL_WEIGHTS[0]):
+                    open(os.path.join(local_dir, n), "wb").close()
+        return fake_snapshot
 
     @unittest.skipUnless(HAS_HF, "huggingface_hub not installed")
     def test_download_uses_fp16_patterns_and_verifies(self):
         calls = []
-
-        def fake_snapshot(repo, local_dir, allow_patterns, tqdm_class):
-            calls.append((repo, allow_patterns))
-            if repo == models.BASE_REPO:
-                root = os.path.dirname(local_dir)
-                self.make_install(root, lora=False)
-            else:
-                os.makedirs(local_dir, exist_ok=True)
-                open(os.path.join(local_dir, models.LORA_FILE), "wb").close()
-
-        with tempfile.TemporaryDirectory() as t, mock.patch("huggingface_hub.snapshot_download", fake_snapshot):
+        with tempfile.TemporaryDirectory() as t, mock.patch("huggingface_hub.snapshot_download", self._fake_snapshot(calls)):
             paths = models.download(t)
-            self.assertTrue(paths.complete() and paths.has_lora())
-        self.assertEqual(calls[0][0], models.BASE_REPO)
+            self.assertTrue(paths.complete() and paths.has_lora() and paths.has_smart())
+            self.assertEqual(paths.control_variant, "fp16")
+        self.assertEqual([c[0] for c in calls], [models.BASE_REPO, models.LORA_REPO, models.CLIP_REPO, models.CONTROL_REPO])
         self.assertIn("unet/diffusion_pytorch_model.fp16.safetensors", calls[0][1])
         self.assertNotIn("*.ckpt", calls[0][1])
         self.assertEqual(calls[1], (models.LORA_REPO, [models.LORA_FILE]))
+        self.assertIn("model.safetensors", calls[2][1])
+        self.assertEqual(calls[3][1], models.CONTROL_PATTERNS)
+
+    @unittest.skipUnless(HAS_HF, "huggingface_hub not installed")
+    def test_no_smart_download_skips_clip_and_controlnet(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as t, mock.patch("huggingface_hub.snapshot_download", self._fake_snapshot(calls)):
+            paths = models.download(t, smart=False)
+            self.assertTrue(paths.complete() and not paths.has_smart())
+        self.assertEqual([c[0] for c in calls], [models.BASE_REPO, models.LORA_REPO])
+
+    @unittest.skipUnless(HAS_HF, "huggingface_hub not installed")
+    def test_incomplete_smart_download_is_reported(self):
+        calls = []
+        fake = self._fake_snapshot(calls)
+
+        def skip_clip(repo, local_dir, allow_patterns, tqdm_class):
+            if repo != models.CLIP_REPO:
+                fake(repo, local_dir, allow_patterns, tqdm_class)
+
+        with tempfile.TemporaryDirectory() as t, mock.patch("huggingface_hub.snapshot_download", skip_clip):
+            with self.assertRaises(RuntimeError) as cm:
+                models.download(t)
+            self.assertIn(models.CLIP_DIR, str(cm.exception))
 
     @unittest.skipUnless(HAS_HF, "huggingface_hub not installed")
     def test_download_fails_loudly_when_files_missing(self):

@@ -26,7 +26,7 @@ def bytes_to_unicode():
     return dict(zip(bs, map(chr, cs)))
 
 
-def build_tiny_install(root, with_lora=False):
+def build_tiny_install(root, with_lora=False, with_smart=False):
     """Write a miniature but structurally real SD1.5 install (and optionally a real LoRA file) under root."""
     import json
     import torch
@@ -61,6 +61,20 @@ def build_tiny_install(root, with_lora=False):
         safety_checker=None, feature_extractor=None, requires_safety_checker=False)
     paths = models.ModelPaths(root)
     pipe.save_pretrained(paths.base)
+    if with_smart:
+        from diffusers import ControlNetModel
+        from transformers import CLIPConfig, CLIPModel
+        control = ControlNetModel.from_unet(unet)
+        for name, p in control.named_parameters():          # fresh ControlNets start as zero-convs (no effect); wake them up
+            if "controlnet_down_blocks" in name or "controlnet_mid_block" in name:
+                torch.nn.init.normal_(p, std=0.5)
+        control.save_pretrained(paths.control)
+        clip = CLIPModel(CLIPConfig(
+            text_config=text_encoder.config.to_dict(), projection_dim=16,
+            vision_config=dict(hidden_size=16, intermediate_size=32, num_attention_heads=2, num_hidden_layers=1,
+                               image_size=224, patch_size=32, projection_dim=16)))
+        clip.save_pretrained(paths.clip)
+        tokenizer.save_pretrained(paths.clip)
     if with_lora:
         from diffusers.utils import convert_state_dict_to_diffusers
         from peft import LoraConfig
@@ -196,6 +210,92 @@ class TestLora(unittest.TestCase):
             e.unload()
 
 
+def doodle(size=(200, 160)):
+    """Black strokes on white: a house-ish scribble."""
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", size, "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([40, 70, 160, 140], outline="black", width=4)
+    d.line([40, 70, 100, 20, 160, 70], fill="black", width=4)
+    return im
+
+
+@unittest.skipUnless(OK, WHY)
+class TestSmartRedraw(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.paths = build_tiny_install(cls.tmp.name, with_smart=True)
+        cls.engine = eng.Engine(cls.paths, device="cpu")
+        cls.engine.load()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.unload()
+        cls.tmp.cleanup()
+
+    def test_install_reports_smart_models(self):
+        self.assertTrue(self.paths.has_clip() and self.paths.has_control() and self.paths.has_smart())
+        self.assertTrue(self.engine.smart_ready)
+
+    def test_recognize_returns_ranked_known_labels(self):
+        from paintapp.ai import vocab
+        guesses = self.engine.recognize(doodle(), top=3)
+        self.assertEqual(len(guesses), 3)
+        self.assertTrue(all(label in vocab.LABELS for label, _p in guesses))
+        probs = [p for _l, p in guesses]
+        self.assertEqual(probs, sorted(probs, reverse=True))
+        self.assertTrue(0 < sum(probs) <= 1.0001)
+        self.assertEqual(self.engine.recognize(doodle(), top=3), guesses)            # deterministic
+
+    def test_sketch_with_given_subject_skips_recognition(self):
+        job = eng.Job("sketch", "a clean drawing of {subject}", steps=2, guidance=1.0, seed=1,
+                      subject="cat", control=doodle((256, 192)))
+        self.engine.last_guesses = []
+        out, seed = self.engine.run(job)
+        self.assertEqual((out.size, seed), ((256, 192), 1))
+        self.assertEqual(self.engine.last_guesses, [])
+        self.assertEqual(self.engine.last_label, "cat")
+
+    def test_sketch_without_subject_recognises_first_and_reports_it(self):
+        seen = []
+        self.engine.on_info = seen.append
+        job = eng.Job("sketch", "a clean drawing of {subject}", steps=2, guidance=1.0, seed=2,
+                      sketch=doodle(), control=doodle((256, 192)))
+        out, _ = self.engine.run(job)
+        self.engine.on_info = None
+        self.assertEqual(out.size, (256, 192))
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("Looks like: "), seen)
+        self.assertEqual(self.engine.last_label, self.engine.last_guesses[0][0])
+
+    def test_sketch_follows_the_control_image(self):
+        import numpy as np
+        a = eng.Job("sketch", "x", steps=2, guidance=1.0, seed=3, subject="s", control=doodle((256, 256)))
+        b = eng.Job("sketch", "x", steps=2, guidance=1.0, seed=3, subject="s", control=doodle((256, 256)),
+                    control_scale=0.0)
+        x, _ = self.engine.run(a)
+        y, _ = self.engine.run(b)
+        self.assertGreater(np.abs(np.asarray(x, float) - np.asarray(y, float)).mean(), 0.0)
+
+    def test_sketch_can_be_cancelled(self):
+        job = eng.Job("sketch", "x", steps=6, guidance=1.0, seed=3, subject="s", control=doodle((256, 256)))
+        with self.assertRaises(eng.Cancelled):
+            self.engine.run(job, cancelled=lambda: True)
+
+    def test_missing_smart_models_give_a_clear_error(self):
+        with tempfile.TemporaryDirectory() as t:
+            paths = build_tiny_install(t)
+            e = eng.Engine(paths, device="cpu")
+            e.load()
+            with self.assertRaises(RuntimeError) as cm:
+                e.run(eng.Job("sketch", "x", steps=1, subject="s", control=doodle((256, 256))))
+            self.assertIn("Download", str(cm.exception))
+            with self.assertRaises(RuntimeError):
+                e.recognize(doodle())
+            e.unload()
+
+
 @unittest.skipUnless(OK, WHY)
 class TestEndToEnd(unittest.TestCase):
     """Real panel -> thread -> real engine (tiny model on CPU) -> new layer. Nothing mocked except the folder."""
@@ -209,7 +309,7 @@ class TestEndToEnd(unittest.TestCase):
         from paintapp.document import Document
         from paintapp.mainwindow import MainWindow
         app = QApplication.instance() or QApplication([])
-        with tempfile.TemporaryDirectory() as t, mock.patch.dict(os.environ, {"PAINT_MODELS_DIR": os.path.join(t, "m")}):
+        with tempfile.TemporaryDirectory() as t, mock.patch.dict(os.environ, {"PAINTRAM_MODELS_DIR": os.path.join(t, "m")}):
             build_tiny_install(os.path.join(t, "m"), with_lora=True)
             win = MainWindow(Document(300, 200), QSettings(os.path.join(t, "s.ini"), QSettings.IniFormat))
             win.show()

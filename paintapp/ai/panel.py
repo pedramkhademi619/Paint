@@ -1,4 +1,5 @@
 """Dock panel for AI generation: prompt, mode, options, progress, and placing the result as a layer."""
+import numpy as np
 from PyQt5.QtCore import QRect, QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QMessageBox,
@@ -6,11 +7,19 @@ from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, 
                              QVBoxLayout, QWidget)
 
 from . import engine as eng
-from . import models
-from .worker import DownloadThread, JobThread
+from . import models, sketch
+from .worker import DownloadThread, JobThread, RecognizeThread
 
-MODES = ["Text → Image", "Image → Image", "Inpaint selection"]
-MODE_KEYS = ["txt2img", "img2img", "inpaint"]
+MODES = ["Text → Image", "Image → Image", "Inpaint selection", "Sketch → Neat"]
+MODE_KEYS = ["txt2img", "img2img", "inpaint", "sketch"]
+NEAT_STYLES = {
+    "Clean line art": "a clean, beautiful black ink line drawing of {subject}, smooth confident lines, white background, high quality",
+    "Colorful illustration": "a beautiful colorful digital illustration of {subject}, clean shapes, vibrant colors, simple background, high quality",
+    "Flat vector icon": "a flat vector icon of {subject}, minimal, bold shapes, solid colors, white background",
+    "Realistic": "a realistic photo of {subject}, natural light, sharp focus, high detail",
+    "Watercolor": "a watercolor painting of {subject}, soft washes, paper texture, high quality",
+}
+NEAT_NEGATIVE = "blurry, deformed, ugly, extra limbs, text, watermark, low quality, cropped"
 SIZES = ["Match canvas (512)", "Match canvas (768)", "512 × 512", "512 × 768", "768 × 512"]
 STYLES = {
     "None": "",
@@ -33,6 +42,7 @@ class AIPanel(QWidget):
         self._injected = engine is not None
         self.thread = None
         self.dl_thread = None
+        self.rec_thread = None
         self._build()
         self.refresh_state()
 
@@ -66,6 +76,22 @@ class AIPanel(QWidget):
         self.seed.setRange(0, 2 ** 31 - 1)
         self.random_seed = QCheckBox("Random")
         self.random_seed.setChecked(True)
+        # --- Sketch -> Neat
+        self.subject = QComboBox()
+        self.subject.setEditable(True)
+        self.subject.setInsertPolicy(QComboBox.NoInsert)
+        self.subject.lineEdit().setPlaceholderText("What is it? (leave empty to auto-detect)")
+        self.subject.setCurrentIndex(-1)
+        self.neat_style = QComboBox()
+        self.neat_style.addItems(list(NEAT_STYLES))
+        self.follow = QSlider(Qt.Horizontal)
+        self.follow.setRange(30, 140)
+        self.follow.setValue(90)
+        self.follow_label = QLabel("0.90")
+        self.follow.valueChanged.connect(lambda v: self.follow_label.setText("%.2f" % (v / 100.0)))
+        self.hide_sketch = QCheckBox("Hide my sketch afterwards")
+        self.hide_sketch.setChecked(True)
+        self.recognize_btn = QPushButton("What is this?")
         self.generate_btn = QPushButton("Generate")
         self.generate_btn.setDefault(True)
         self.cancel_btn = QPushButton("Cancel")
@@ -93,6 +119,17 @@ class AIPanel(QWidget):
         seed_row.addWidget(self.random_seed)
         form.addRow("Seed", seed_row)
 
+        self.sketch_box = QWidget()
+        sk = QFormLayout(self.sketch_box)
+        sk.setContentsMargins(0, 0, 0, 0)
+        sk.addRow("Subject", self.subject)
+        sk.addRow("Neat style", self.neat_style)
+        follow_row = QHBoxLayout()
+        follow_row.addWidget(self.follow, 1)
+        follow_row.addWidget(self.follow_label)
+        sk.addRow("Follow lines", follow_row)
+        sk.addRow(self.hide_sketch)
+        sk.addRow(self.recognize_btn)
         buttons = QHBoxLayout()
         buttons.addWidget(self.generate_btn, 1)
         buttons.addWidget(self.cancel_btn)
@@ -103,6 +140,7 @@ class AIPanel(QWidget):
         lay.addWidget(self.prompt)
         lay.addWidget(self.negative)
         lay.addLayout(form)
+        lay.addWidget(self.sketch_box)
         lay.addLayout(buttons)
         lay.addWidget(self.download_btn)
         lay.addWidget(self.bar)
@@ -120,25 +158,35 @@ class AIPanel(QWidget):
         self.generate_btn.clicked.connect(self.generate)
         self.cancel_btn.clicked.connect(self.cancel)
         self.download_btn.clicked.connect(self.download)
+        self.recognize_btn.clicked.connect(self.recognize)
         self._mode_changed()
 
     def _mode_changed(self):
-        img2 = self.mode.currentIndex() != 0
+        key = MODE_KEYS[self.mode.currentIndex()]
+        img2 = key in ("img2img", "inpaint")
         self.strength.setEnabled(img2)
         self.strength_label.setEnabled(img2)
+        self.sketch_box.setVisible(key == "sketch")
+        self.style.setEnabled(key != "sketch")
+        self.prompt.setPlaceholderText(
+            "Optional extra details, e.g. “wearing a hat”" if key == "sketch"
+            else "Describe what you want, e.g. “a lighthouse on a cliff at sunset”")
 
     def focus_prompt(self):
         self.prompt.setFocus()
 
     # ------------------------------------------------------------ readiness
-    def ready(self):
+    def ready(self, mode=None):
         if self._injected:
             return True, ""
         ok, reason = eng.available()
         if not ok:
             return False, reason
-        if models.find_models() is None:
+        found = models.find_models()
+        if found is None:
             return False, "The AI model is not installed yet."
+        if mode == "sketch" and not found.has_smart():
+            return False, "The sketch recognition models are not installed yet. Use AI > Download AI Model."
         return True, ""
 
     def refresh_state(self, keep_text=False):
@@ -159,6 +207,8 @@ class AIPanel(QWidget):
                   self.seed, self.random_seed, self.generate_btn):
             w.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy and self.thread is not None)
+        for w in (self.subject, self.neat_style, self.follow, self.hide_sketch, self.recognize_btn):
+            w.setEnabled(not busy)
         if not busy:
             self._mode_changed()
 
@@ -178,6 +228,8 @@ class AIPanel(QWidget):
         """Returns (Job, context) or raises ValueError with a message for the user."""
         doc = self.window.doc
         mode = MODE_KEYS[self.mode.currentIndex()]
+        if mode == "sketch":
+            return self._build_sketch_job(doc)
         prompt = self.prompt.toPlainText().strip()
         if not prompt:
             raise ValueError("Write a prompt first.")
@@ -225,6 +277,79 @@ class AIPanel(QWidget):
         ctx["region"] = region
         return job, ctx
 
+    def _sketch_source(self, doc):
+        """(ink mask cropped to its bounding box, QRect in document coordinates) of the active layer's drawing."""
+        layer = doc.active_layer
+        mask = sketch.ink_mask(layer.image)
+        if doc.selection is not None:
+            sel = QImage(doc.size, QImage.Format_Grayscale8)
+            sel.fill(0)
+            q = QPainter(sel)
+            q.setPen(Qt.NoPen)
+            q.setBrush(QColor(255, 255, 255))
+            q.drawPath(doc.selection)
+            q.end()
+            mask = mask & (np.asarray(eng.mask_to_pil(sel)) > 127)
+        rect = sketch.bounding_rect(mask)
+        if rect is None:
+            raise ValueError("Draw something first: the AI looks at the active layer (or your selection).")
+        return mask[rect.top():rect.bottom() + 1, rect.left():rect.right() + 1], rect
+
+    def _build_sketch_job(self, doc):
+        mask, rect = self._sketch_source(doc)
+        w, h = eng.fit_size(rect.width(), rect.height(), self._longest())
+        style = NEAT_STYLES[self.neat_style.currentText()]
+        extra = self.prompt.toPlainText().strip()
+        negative = ", ".join(x for x in (NEAT_NEGATIVE, self.negative.toPlainText().strip()) if x)
+        subject = self.subject.currentText().strip()
+        seed = eng.random_seed() if self.random_seed.isChecked() else self.seed.value()
+        job = eng.Job(mode="sketch", prompt=style + (", " + extra if extra else ""), negative=negative,
+                      width=w, height=h, steps=self.steps.value(), guidance=self.guidance.value(), seed=seed,
+                      subject=subject, sketch=sketch.clip_image(mask), control=sketch.control_image(mask, w, h),
+                      control_scale=self.follow.value() / 100.0)
+        ctx = {"doc": doc, "clip": doc.selection, "region": rect, "name": "AI · neat", "prompt": job.prompt,
+               "sketch_layer": doc.active_layer if self.hide_sketch.isChecked() else None}
+        return job, ctx
+
+    # ------------------------------------------------------------ recognition only
+    def recognize(self):
+        if self.thread is not None or self.rec_thread is not None:
+            return
+        try:
+            mask, _rect = self._sketch_source(self.window.doc)
+        except ValueError as exc:
+            self.status.setText(str(exc))
+            return
+        ok, reason = self.ready("sketch")
+        if not ok:
+            self.status.setText(reason)
+            return
+        if self.engine is None:
+            self.engine = eng.Engine(models.find_models())
+        self.rec_thread = RecognizeThread(self.engine, sketch.clip_image(mask), self)
+        t = self.rec_thread
+        t.status.connect(self.status.setText)
+        t.done.connect(self._show_guesses)
+        t.failed.connect(lambda m: (self.status.setText("Recognition failed."), QMessageBox.warning(self, "Recognition failed", m)))
+        t.finished.connect(self._rec_finished)
+        self.bar.setRange(0, 0)
+        self.recognize_btn.setEnabled(False)
+        t.start()
+
+    def _show_guesses(self, guesses):
+        self.subject.clear()
+        self.subject.addItems([label for label, _p in guesses])
+        self.subject.setCurrentIndex(-1)
+        self.status.setText("Looks like: " + ", ".join("%s (%d%%)" % (n, round(p * 100)) for n, p in guesses)
+                            + ". Pick or type the right one, then Generate.")
+
+    def _rec_finished(self):
+        self.rec_thread.deleteLater()
+        self.rec_thread = None
+        self.bar.setRange(0, 1)
+        self.bar.setValue(0)
+        self.recognize_btn.setEnabled(True)
+
     # ------------------------------------------------------------ running
     def generate(self):
         if self.thread is not None:
@@ -234,7 +359,7 @@ class AIPanel(QWidget):
         except ValueError as exc:
             self.status.setText(str(exc))
             return
-        ok, reason = self.ready()
+        ok, reason = self.ready(job.mode)
         if not ok:
             self.status.setText(reason)
             return
@@ -266,8 +391,27 @@ class AIPanel(QWidget):
     def _done(self, pil, seed):
         if self.random_seed.isChecked():
             self.seed.setValue(seed)
+        label = getattr(self.engine, "last_label", "") if self.ctx.get("name") == "AI · neat" else ""
+        if label:
+            self.ctx["name"] = "AI · neat " + label
+            guesses = getattr(self.engine, "last_guesses", [])
+            if guesses:
+                self._fill_subject(guesses, label)
+        doc = self.ctx["doc"]
+        doc.undo_stack.beginMacro("AI generate")
         self.apply_result(eng.pil_to_qimage(pil), self.ctx)
-        self.status.setText("Done · seed %d" % seed)
+        if self.ctx.get("sketch_layer") is not None and self.ctx["sketch_layer"] in doc.layers:
+            doc.set_layer_prop(self.ctx["sketch_layer"], "visible", False, "Hide sketch")
+        doc.undo_stack.endMacro()
+        self.status.setText("Done%s · seed %d" % (" · drawn as: %s" % label if label else "", seed))
+
+    def _fill_subject(self, guesses, chosen):
+        """Offer the recogniser's other guesses so a wrong first guess can be fixed with one click."""
+        self.subject.blockSignals(True)
+        self.subject.clear()
+        self.subject.addItems([label for label, _p in guesses])
+        self.subject.setCurrentIndex(-1)
+        self.subject.blockSignals(False)
 
     def _failed(self, message):
         self.status.setText("Failed.")
@@ -343,6 +487,8 @@ class AIPanel(QWidget):
         self.refresh_state(keep_text=True)
 
     def shutdown(self):
+        if self.rec_thread is not None:
+            self.rec_thread.wait(5000)
         if self.thread is not None:
             self.thread.cancel()
             self.thread.wait(5000)
