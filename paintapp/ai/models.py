@@ -108,7 +108,8 @@ def candidate_dirs():
     dirs = []
     if os.environ.get("PAINTRAM_MODELS_DIR"):
         dirs.append(os.environ["PAINTRAM_MODELS_DIR"])
-    dirs += [os.path.join(app_root(), "models"), user_models_dir()]
+    dirs.append(os.path.join(app_root(), "models"))
+    dirs.append(user_models_dir())
     return dirs
 
 

@@ -51,11 +51,11 @@ class AppState(QObject):
         self._secondary = QColor(color)
         self.colorsChanged.emit()
 
-    def swap_colors(self):
+    def swap_colors(self, *_):
         self._primary, self._secondary = self._secondary, self._primary
         self.colorsChanged.emit()
 
-    def reset_colors(self):
+    def reset_colors(self, *_):
         self._primary, self._secondary = QColor(0, 0, 0), QColor(255, 255, 255)
         self.colorsChanged.emit()
 

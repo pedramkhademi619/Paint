@@ -147,7 +147,7 @@ class FilterDialog(QDialog):
         label.setText(str(v))
         self._schedule()
 
-    def _schedule(self):
+    def _schedule(self, *_):
         self._timer.start()
 
     def _render(self):

@@ -717,12 +717,12 @@ class LayerPanel(QWidget):
         self.blend.activated.connect(self._blend_changed)
         self.list.setContextMenuPolicy(Qt.ActionsContextMenu)
         b = self.buttons
-        b["new_layer"].clicked.connect(lambda: self.doc.add_layer())
-        b["dup_layer"].clicked.connect(lambda: self.doc.duplicate_layer())
-        b["delete"].clicked.connect(lambda: self.doc.delete_layer())
-        b["merge"].clicked.connect(lambda: self.doc.merge_down())
-        b["up"].clicked.connect(lambda: self.doc.move_layer(self.doc.active, 1))
-        b["down"].clicked.connect(lambda: self.doc.move_layer(self.doc.active, -1))
+        b["new_layer"].clicked.connect(lambda *_: self.doc.add_layer())
+        b["dup_layer"].clicked.connect(lambda *_: self.doc.duplicate_layer())
+        b["delete"].clicked.connect(lambda *_: self.doc.delete_layer())
+        b["merge"].clicked.connect(lambda *_: self.doc.merge_down())
+        b["up"].clicked.connect(lambda *_: self.doc.move_layer(self.doc.active, 1))
+        b["down"].clicked.connect(lambda *_: self.doc.move_layer(self.doc.active, -1))
 
     def set_document(self, doc):
         if self.doc is not None:

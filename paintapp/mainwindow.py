@@ -290,7 +290,7 @@ class MainWindow(QMainWindow):
         self._update_size()
         self._sync_layer_actions()
 
-    def _sync_undo(self):
+    def _sync_undo(self, *_):
         try:
             st = self.doc.undo_stack
             st.canUndo()
@@ -572,11 +572,49 @@ def configure_portable(root):
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, os.path.join(root, "config"))
 
 
+def selftest():
+    """Headless smoke test used by the installers' CI: window, drawing, undo, AI libraries and models."""
+    import json
+    from PyQt5.QtCore import QPointF
+    from .ai import engine as eng, models
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication(sys.argv[:1])
+    win = MainWindow(Document(200, 120), QSettings(os.path.join(os.environ.get("TMPDIR", "/tmp"), "paintram-selftest.ini"),
+                                                   QSettings.IniFormat))
+    win.show()
+    app.processEvents()
+    win.select_tool("smartpen")
+    c = win.canvas
+    import math
+    pts = [QPointF(100 + 40 * math.cos(t / 20.0 * 2 * math.pi), 60 + 40 * math.sin(t / 20.0 * 2 * math.pi)) for t in range(21)]
+    c.tool.press(pts[0], Qt.LeftButton, Qt.NoModifier)
+    for p in pts[1:]:
+        c.tool.move(p, Qt.NoModifier)
+    c.tool.release(pts[-1], Qt.NoModifier)
+    drew = win.doc.undo_stack.undoText()
+    win.doc.undo_stack.undo()
+    ok_ai, why = eng.available()
+    found = models.find_models()
+    report = {"version": __version__, "drew": drew, "undo_ok": not win.doc.modified, "ai_libs": ok_ai, "ai_note": why,
+              "models": found.root if found else None, "sketch_models": bool(found and found.has_smart()),
+              "frozen": bool(getattr(sys, "frozen", False))}
+    if ok_ai:
+        import torch
+        report["torch"] = torch.__version__
+        report["cuda"] = bool(torch.cuda.is_available())
+    print(json.dumps(report))
+    win.doc.undo_stack.setClean()
+    win.close()
+    return 0 if report["drew"].startswith("Smart shape") and report["undo_ok"] else 1
+
+
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     if "--version" in argv[1:]:
         print(brand.NAME, __version__)
         return 0
+    if "--selftest" in argv[1:]:
+        return selftest()
     if os.environ.get("PAINTRAM_PORTABLE_DIR"):
         configure_portable(os.environ["PAINTRAM_PORTABLE_DIR"])
     app = QApplication(argv)

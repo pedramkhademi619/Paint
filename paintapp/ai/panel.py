@@ -161,7 +161,7 @@ class AIPanel(QWidget):
         self.recognize_btn.clicked.connect(self.recognize)
         self._mode_changed()
 
-    def _mode_changed(self):
+    def _mode_changed(self, *_):
         key = MODE_KEYS[self.mode.currentIndex()]
         img2 = key in ("img2img", "inpaint")
         self.strength.setEnabled(img2)
@@ -312,7 +312,7 @@ class AIPanel(QWidget):
         return job, ctx
 
     # ------------------------------------------------------------ recognition only
-    def recognize(self):
+    def recognize(self, *_):
         if self.thread is not None or self.rec_thread is not None:
             return
         try:
@@ -351,7 +351,7 @@ class AIPanel(QWidget):
         self.recognize_btn.setEnabled(True)
 
     # ------------------------------------------------------------ running
-    def generate(self):
+    def generate(self, *_):
         if self.thread is not None:
             return
         try:
@@ -378,7 +378,7 @@ class AIPanel(QWidget):
         self._busy(True)
         t.start()
 
-    def cancel(self):
+    def cancel(self, *_):
         if self.thread is not None:
             self.thread.cancel()
             self.status.setText("Cancelling…")
@@ -456,7 +456,7 @@ class AIPanel(QWidget):
         self.layerCreated.emit(ctx["name"])
 
     # ------------------------------------------------------------ model download
-    def download(self):
+    def download(self, *_):
         if self.dl_thread is not None:
             return
         self.dl_thread = DownloadThread(parent=self)

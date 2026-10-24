@@ -1,4 +1,4 @@
-; Inno Setup script. Built by packaging/build.py: expects dist\Paintram (PyInstaller) and build\models (model weights).
+; Inno Setup script. Built by packaging/build.py: expects dist\Paintram (PyInstaller output incl. the models folder).
 #define AppName "Paintram"
 #ifndef AppVersion
   #define AppVersion "2.1.0"
@@ -31,13 +31,21 @@ DisableProgramGroupPage=yes
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-Source: "..\dist\Paintram\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-; model weights are already compressed
-Source: "..\build\models\*"; DestDir: "{app}\models"; Flags: recursesubdirs createallsubdirs ignoreversion nocompression
+Source: "..\dist\Paintram\*"; DestDir: "{app}"; Excludes: "models\*"; Flags: recursesubdirs createallsubdirs ignoreversion
+; model weights are already compressed, so store them as they are
+Source: "..\dist\Paintram\models\*"; DestDir: "{app}\models"; Flags: recursesubdirs createallsubdirs ignoreversion nocompression skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\Paintram.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Paintram.exe"; Tasks: desktopicon
+
+[Registry]
+; settings live in the registry (QSettings): remove them together with the program
+Root: HKCU; Subkey: "Software\Paintram"; Flags: uninsdeletekey
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{localappdata}\Paintram"
+Type: filesandordirs; Name: "{app}"
 
 [Run]
 Filename: "{app}\Paintram.exe"; Description: "Launch Paintram"; Flags: nowait postinstall skipifsilent

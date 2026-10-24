@@ -4,12 +4,15 @@ import sys
 
 
 def _enable_portable_mode():
-    """Installer layout: <root>/app/paintram.py plus <root>/portable.marker.
+    """Installed layout: <root>/Paintram (frozen) or <root>/app/paintram.py, plus <root>/portable.marker.
 
     In that layout every cache, the AI model and the settings live under <root>, so deleting <root>
     removes all traces. A plain source checkout has no marker and is unaffected.
     """
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if getattr(sys, "frozen", False):                       # installed build: the folder holding the executable
+        root = os.path.dirname(sys.executable)
+    else:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if not os.path.isfile(os.path.join(root, "portable.marker")):
         return
     cache = os.path.join(root, "cache")
