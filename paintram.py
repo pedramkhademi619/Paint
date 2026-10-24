@@ -30,7 +30,21 @@ def _enable_portable_mode():
         os.environ.setdefault(key, value)
 
 
+def _load_torch_before_qt():
+    """Windows: PyTorch fails to initialise (c10.dll, WinError 1114) if PyQt5 was loaded first, so load it first.
+
+    Only done when the AI libraries are installed and the user did not just ask for --version/--source.
+    """
+    if sys.platform != "win32" or any(a in sys.argv[1:] for a in ("--version", "--source")):
+        return
+    try:
+        import torch  # noqa: F401
+    except Exception:
+        pass                                    # no AI libraries (or broken): the editor still works
+
+
 _enable_portable_mode()
+_load_torch_before_qt()
 
 from paintapp.mainwindow import main  # noqa: E402
 

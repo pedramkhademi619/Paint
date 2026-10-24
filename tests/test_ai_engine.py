@@ -8,6 +8,11 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+try:
+    import torch  # noqa: F401  Windows: must be imported before PyQt5 (c10.dll fails to initialise otherwise)
+except ImportError:
+    pass
+
 from paintapp.ai import engine as eng  # noqa: E402
 from paintapp.ai import models  # noqa: E402
 

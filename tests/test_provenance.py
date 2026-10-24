@@ -97,6 +97,14 @@ class TestAbout(unittest.TestCase):
         self.assertTrue(any("Licences" in t for t in labels))
 
 
+class TestEntryPoint(unittest.TestCase):
+    def test_windows_loads_torch_before_qt(self):
+        src = open(os.path.join(ROOT, "paintram.py"), encoding="utf-8").read()
+        self.assertIn("import torch", src)
+        self.assertLess(src.index("_load_torch_before_qt()"), src.index("from paintapp.mainwindow import main"))
+        self.assertIn('sys.platform != "win32"', src)
+
+
 class TestPackagingMetadata(unittest.TestCase):
     def test_note_is_appended_to_a_binary_without_touching_it(self):
         protect = load("packaging/protect.py", "protect")
