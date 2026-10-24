@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["claude/hopeful-newton-ge1ite"]     # also builds on every push to the working branch
 
 env:
   QT_QPA_PLATFORM: offscreen
