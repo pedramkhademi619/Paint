@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cu128
-          pip install pyinstaller
+          pip install pyinstaller PyQt5 numpy pillow
       - name: Microsoft Visual C++ runtime
         shell: pwsh
         run: |
@@ -33,7 +33,7 @@ jobs:
       - name: Plain Python can import torch
         run: python -c "import torch; print('torch', torch.__version__)"
       - name: Freeze the probe
-        run: pyinstaller --noconfirm --clean --console --name probe packaging/probe/probe.py
+        run: pyinstaller --noconfirm --clean --console --name probe --hidden-import torch --hidden-import numpy --hidden-import PyQt5.QtCore --hidden-import PyQt5.QtGui --hidden-import PyQt5.QtWidgets --hidden-import PIL.Image packaging/probe/probe.py
       - name: Try the variants
         shell: pwsh
         run: ./packaging/probe/variants.ps1

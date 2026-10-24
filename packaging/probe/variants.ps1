@@ -35,23 +35,31 @@ Show-Versions "as built"
 Write-Host "`n=== DLLs next to torch\lib (first 40)"
 Get-ChildItem (Join-Path $internal "torch\lib") -Filter *.dll | Select-Object -First 40 | ForEach-Object { Write-Host $_.Name }
 
-Run-Probe "V0 baseline (bundle exactly as PyInstaller made it)" @{}
+Write-Host "`n=== EVERY Visual C++ runtime copy inside the bundle"
+Get-ChildItem $internal -Recurse -Include vcruntime140*.dll,msvcp140*.dll,concrt140.dll,vcomp140.dll,libiomp5md.dll | ForEach-Object {
+    Write-Host ("{0,-28} {1,-16} {2}" -f $_.Name, $_.VersionInfo.FileVersion, $_.DirectoryName.Replace((Resolve-Path $internal).Path, "_internal")) }
+
+Run-Probe "V0 baseline: torch only" @{ PROBE_ORDER = "torch" }
+Run-Probe "O1 numpy, then torch" @{ PROBE_ORDER = "numpy,torch" }
+Run-Probe "O2 PyQt5.QtCore, then torch" @{ PROBE_ORDER = "PyQt5.QtCore,torch" }
+Run-Probe "O3 PyQt5.QtWidgets+numpy+PIL, then torch (like the app)" @{ PROBE_ORDER = "PyQt5.QtWidgets,numpy,PIL.Image,torch" }
+Run-Probe "O4 torch first, then PyQt5.QtWidgets" @{ PROBE_ORDER = "torch,PyQt5.QtWidgets" }
 
 # V1: drop the bundled Visual C++ runtime copies so the system's current ones are used
 $backup = Join-Path $env:RUNNER_TEMP "rt_backup"; New-Item -ItemType Directory -Force $backup | Out-Null
 foreach ($n in $runtime) { $p = Join-Path $internal $n; if (Test-Path $p) { Copy-Item $p $backup; Remove-Item $p } }
-Run-Probe "V1 bundled VC runtime copies REMOVED (system ones used)" @{}
+Run-Probe "V1 runtime copies REMOVED, app-like order" @{ PROBE_ORDER = "PyQt5.QtWidgets,numpy,PIL.Image,torch" }
 
 # V2: replace the bundled copies with the current system ones
 foreach ($n in $runtime) { $s = Join-Path $sys32 $n; if ((Test-Path $s) -and (Test-Path (Join-Path $backup $n))) { Copy-Item $s $internal -Force } }
-Run-Probe "V2 bundled copies REPLACED by System32 versions" @{}
+Run-Probe "V2 runtime copies REPLACED by System32, app-like order" @{ PROBE_ORDER = "PyQt5.QtWidgets,numpy,PIL.Image,torch" }
 
 # V3: restore originals, tell Intel OpenMP duplicates not to abort
 Get-ChildItem $backup | ForEach-Object { Copy-Item $_.FullName $internal -Force }
-Run-Probe "V3 originals + KMP_DUPLICATE_LIB_OK=TRUE" @{ KMP_DUPLICATE_LIB_OK = "TRUE" }
+Run-Probe "V3 originals + KMP_DUPLICATE_LIB_OK, app-like order" @{ KMP_DUPLICATE_LIB_OK = "TRUE"; PROBE_ORDER = "PyQt5.QtWidgets,numpy,PIL.Image,torch" }
 
 # V4: originals, torch\lib first on PATH
-Run-Probe "V4 originals + torch\lib on PATH" @{ PATH = ((Resolve-Path (Join-Path $internal "torch\lib")).Path + ";" + $env:PATH) }
+Run-Probe "V4 originals + torch\lib on PATH, app-like order" @{ PROBE_ORDER = "PyQt5.QtWidgets,numpy,PIL.Image,torch"; PATH = ((Resolve-Path (Join-Path $internal "torch\lib")).Path + ";" + $env:PATH) }
 
 Write-Host "`n=== imports of c10.dll (dumpbin, if available)"
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
