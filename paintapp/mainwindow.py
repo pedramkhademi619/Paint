@@ -625,39 +625,73 @@ def configure_portable(root):
 
 
 def selftest():
-    """Headless smoke test used by the installers' CI: window, drawing, undo, AI libraries and models."""
+    """Headless smoke test used by the installers' CI: window, drawing, undo, AI libraries and models.
+
+    Installed builds are windowed programs without a console, so the report goes to the file named by
+    PAINTRAM_SELFTEST_OUT (and to stdout when there is one). A watchdog dumps every thread's stack into
+    <file>.log and exits if the test hangs, so a stuck build shows *where* it is stuck.
+    """
+    import faulthandler
     import json
+    import traceback
+    out_path = os.environ.get("PAINTRAM_SELFTEST_OUT")
+    log = open(out_path + ".log", "w") if out_path else sys.stderr
+    if log is not None:
+        faulthandler.dump_traceback_later(float(os.environ.get("PAINTRAM_SELFTEST_TIMEOUT", "240")), file=log, exit=True)
+    code = 1
+    try:
+        report = _selftest_report()
+        code = 0 if report["drew"].startswith("Smart shape") and report["undo_ok"] else 1
+        text = json.dumps(report)
+        if sys.stdout is not None:
+            print(text, flush=True)
+        if out_path:
+            with open(out_path, "w") as f:
+                f.write(text)
+    except BaseException:
+        if log is not None:
+            log.write(traceback.format_exc())
+            log.flush()
+        raise
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+    if getattr(sys, "frozen", False):
+        os._exit(code)              # skip interpreter shutdown: PyTorch can hang there on Windows
+    return code
+
+
+def _selftest_report():
+    import math
     from PyQt5.QtCore import QPointF
     from .ai import engine as eng, models
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication(sys.argv[:1])
-    win = MainWindow(Document(200, 120), QSettings(os.path.join(os.environ.get("TMPDIR", "/tmp"), "paintram-selftest.ini"),
-                                                   QSettings.IniFormat))
+    tmp = os.environ.get("TMPDIR") or os.environ.get("TEMP") or "/tmp"
+    win = MainWindow(Document(200, 120), QSettings(os.path.join(tmp, "paintram-selftest.ini"), QSettings.IniFormat))
     win.show()
     app.processEvents()
     win.select_tool("smartpen")
-    c = win.canvas
-    import math
+    tool = win.canvas.tool
     pts = [QPointF(100 + 40 * math.cos(t / 20.0 * 2 * math.pi), 60 + 40 * math.sin(t / 20.0 * 2 * math.pi)) for t in range(21)]
-    c.tool.press(pts[0], Qt.LeftButton, Qt.NoModifier)
+    tool.press(pts[0], Qt.LeftButton, Qt.NoModifier)
     for p in pts[1:]:
-        c.tool.move(p, Qt.NoModifier)
-    c.tool.release(pts[-1], Qt.NoModifier)
+        tool.move(p, Qt.NoModifier)
+    tool.release(pts[-1], Qt.NoModifier)
     drew = win.doc.undo_stack.undoText()
     win.doc.undo_stack.undo()
     ok_ai, why = eng.available()
     found = models.find_models()
-    report = {"version": __version__, "source": brand.SOURCE_URL, "drew": drew, "undo_ok": not win.doc.modified, "ai_libs": ok_ai, "ai_note": why,
-              "models": found.root if found else None, "sketch_models": bool(found and found.has_smart()),
-              "frozen": bool(getattr(sys, "frozen", False))}
+    report = {"version": __version__, "source": brand.SOURCE_URL, "drew": drew, "undo_ok": not win.doc.modified,
+              "ai_libs": ok_ai, "ai_note": why, "models": found.root if found else None,
+              "sketch_models": bool(found and found.has_smart()), "frozen": bool(getattr(sys, "frozen", False)),
+              "platform": QApplication.platformName()}
     if ok_ai:
         import torch
         report["torch"] = torch.__version__
         report["cuda"] = bool(torch.cuda.is_available())
-    print(json.dumps(report))
     win.doc.undo_stack.setClean()
     win.close()
-    return 0 if report["drew"].startswith("Smart shape") and report["undo_ok"] else 1
+    return report
 
 
 def main(argv=None):

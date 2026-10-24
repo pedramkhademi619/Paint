@@ -93,16 +93,35 @@ def frozen_executable():
     return os.path.join(ROOT, "dist", NAME, NAME)
 
 
+def selftest_diagnostics(exe, out, why):
+    """Print everything useful about a failed self-test of the frozen program."""
+    print("=== self-test FAILED: %s" % why)
+    for path in (out, out + ".log"):
+        if os.path.isfile(path):
+            print("--- %s\n%s" % (path, open(path, errors="replace").read()[-6000:]))
+    root = os.path.dirname(exe)
+    plugins = [os.path.join(b, f) for b, _d, fs in os.walk(root) for f in fs if "platforms" in b and f.lower().startswith(("qoffscreen", "qwindows", "libqoffscreen", "libqxcb"))]
+    print("--- Qt platform plugins in the bundle: %s" % (plugins or "NONE FOUND"))
+
+
 def selftest(exe, want_models):
     """Run the frozen program headless and insist that it drew, undid, sees the AI libraries and the models."""
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
-    out = subprocess.run([exe, "--selftest"], capture_output=True, text=True, env=env, timeout=600)
-    line = [l for l in out.stdout.splitlines() if l.startswith("{")]
-    if out.returncode != 0 or not line:
-        raise SystemExit("Self-test of the frozen program failed (exit %s):\n%s\n%s" % (out.returncode, out.stdout, out.stderr[-2000:]))
-    report = json.loads(line[-1])
+    import tempfile
+    out = os.path.join(tempfile.mkdtemp(prefix="paintram-selftest-"), "report.json")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PAINTRAM_SELFTEST_OUT=out, PAINTRAM_SELFTEST_TIMEOUT="300")
+    try:
+        proc = subprocess.run([exe, "--selftest"], capture_output=True, text=True, env=env, timeout=420)
+    except subprocess.TimeoutExpired:
+        selftest_diagnostics(exe, out, "timed out after 420 s")
+        raise SystemExit("Self-test of the frozen program timed out")
+    if not os.path.isfile(out):
+        selftest_diagnostics(exe, out, "no report written (exit code %s)\n%s\n%s" % (proc.returncode, proc.stdout[-1500:], proc.stderr[-1500:]))
+        raise SystemExit("Self-test of the frozen program produced no report")
+    report = json.load(open(out))
     print("self-test:", report)
     problems = []
+    if proc.returncode != 0:
+        problems.append("exit code %s (drew=%r)" % (proc.returncode, report.get("drew")))
     if not report.get("frozen"):
         problems.append("not running as a frozen program")
     if not report.get("ai_libs"):
@@ -110,6 +129,7 @@ def selftest(exe, want_models):
     if want_models and not report.get("sketch_models"):
         problems.append("the AI models were not found next to the program")
     if problems:
+        selftest_diagnostics(exe, out, "; ".join(problems))
         raise SystemExit("Self-test problems: " + "; ".join(problems))
     return report
 
