@@ -49,6 +49,33 @@ def make_ico():
         ico, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 
+def windows_version_file(brand, version):
+    """PyInstaller version resource: what Explorer shows under Properties > Details."""
+    v = tuple((list(int(x) for x in version.split(".") if x.isdigit()) + [0, 0, 0, 0])[:4])
+    dotted = ".".join(str(x) for x in v)
+    fields = [("CompanyName", brand["name"]), ("FileDescription", brand["name"] + " - " + brand["tagline"]),
+              ("FileVersion", dotted), ("InternalName", brand["name"]), ("OriginalFilename", brand["name"] + ".exe"),
+              ("LegalCopyright", "Copyright (C) 2024-2026 %s. %s." % (brand["author"], brand["license"])),
+              ("ProductName", brand["name"]), ("ProductVersion", dotted),
+              ("Comments", "Open source: " + brand["source_url"])]
+    strings = ", ".join("StringStruct(%r, %r)" % kv for kv in fields)
+    return ("VSVersionInfo(\n  ffi=FixedFileInfo(filevers=%r, prodvers=%r, mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,"
+            " subtype=0x0, date=(0, 0)),\n  kids=[\n    StringFileInfo([StringTable('040904B0', [%s])]),\n"
+            "    VarFileInfo([VarStruct('Translation', [1033, 1200])])\n  ]\n)\n" % (v, v, strings))
+
+
+def copy_docs(dist_dir):
+    """Licence texts and the open-source note go next to the executable, as in any redistributable package."""
+    from paintapp import provenance
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        shutil.copy(os.path.join(ROOT, name), os.path.join(dist_dir, name))
+    with open(os.path.join(dist_dir, "OPEN_SOURCE.txt"), "w", encoding="utf-8") as f:
+        f.write(provenance.hello())
+        f.write("\nThis program is free software (%s). The complete source code is at %s\n"
+                "The AI models it uses have their own licences: see THIRD_PARTY_NOTICES.md.\n"
+                % (BRAND["license"], BRAND["source_url"]))
+
+
 def frozen_executable():
     if sys.platform == "win32":
         return os.path.join(ROOT, "dist", NAME, NAME + ".exe")
@@ -103,11 +130,15 @@ def main():
             protected = os.path.join(ROOT, "build", "protected")
             run([sys.executable, "packaging/protect.py", protected])
             env["PAINTRAM_PROTECTED"] = protected
+        if sys.platform == "win32":
+            with open(os.path.join(ROOT, "packaging", "win_version.txt"), "w", encoding="utf-8") as f:
+                f.write(windows_version_file(BRAND, args.version))
         run([sys.executable, "-m", "PyInstaller", "packaging/paintram.spec", "--noconfirm", "--clean"], env=env)
     exe = frozen_executable()
     if not os.path.isfile(exe):
         raise SystemExit("%s missing: the PyInstaller step failed or was skipped" % exe)
 
+    copy_docs(os.path.join(ROOT, "dist", NAME))
     if not args.no_models:
         # put the models where the frozen program looks for them, then prove it finds them
         target = os.path.join(ROOT, "dist", NAME, "models")

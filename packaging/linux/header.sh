@@ -1,6 +1,7 @@
 #!/bin/sh
 # __NAME__ __VERSION__ - self-extracting installer for Linux (x86_64).
-# Contains the program and its AI models; nothing is downloaded and no source code is included.
+# Contains the program and its AI models; nothing is downloaded.
+# Paintram is open source (GPL-3.0-or-later): __SOURCE__   -   curious about the insides? just read the code there.
 #
 #   sh __FILE__                 install for the current user (no root needed)
 #   sh __FILE__ --system        install for everybody into /opt/__SLUG__ (run as root)
@@ -31,7 +32,7 @@ while [ $# -gt 0 ]; do
     --no-menu) MENU=0 ;;
     --uninstall) ACTION=uninstall ;;
     --check) ACTION=check ;;
-    -h|--help) sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "Unknown option: $1 (try --help)" ;;
   esac
   shift

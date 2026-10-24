@@ -67,6 +67,19 @@ def write_import_manifest(out, mods):
         f.write("\n".join(lines) + "\n")
 
 
+def append_message(path):
+    """Leave a note for whoever opens the binary: plain text after the end of the file (loaders ignore it)."""
+    sys.path.insert(0, ROOT)
+    from paintapp import provenance
+    with open(path, "ab") as f:
+        f.write(b"\n" + provenance.hello().encode("utf-8") + b"\n")
+
+
+def binaries(out):
+    return [os.path.join(b, f) for b, _d, fs in os.walk(os.path.join(out, PKG)) for f in fs
+            if f.endswith((".so", ".pyd"))]
+
+
 def compile_package(out):
     from Cython.Build import cythonize
     from setuptools import Extension, setup
@@ -97,6 +110,8 @@ def main(argv=None):
         shutil.copy(os.path.join(ROOT, d, "__init__.py"), os.path.join(out, d, "__init__.py"))
     shutil.copy(os.path.join(ROOT, "paintram.py"), os.path.join(out, "paintram.py"))
     write_import_manifest(out, mods)
+    for path in binaries(out):
+        append_message(path)
     leaked = [os.path.join(b, f) for b, _d, fs in os.walk(os.path.join(out, PKG)) for f in fs
               if f.endswith((".py", ".pyc")) and f != "__init__.py"]
     if leaked:

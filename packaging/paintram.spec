@@ -34,5 +34,7 @@ a = Analysis(
     excludes=["tkinter", "matplotlib", "pytest", "IPython", "tensorboard", "torch.utils.tensorboard"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, console=False, icon=ICON)
+VERSION_FILE = os.path.join(ROOT, "packaging", "win_version.txt")
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, console=False, icon=ICON,
+          version=VERSION_FILE if sys.platform == "win32" and os.path.isfile(VERSION_FILE) else None)
 coll = COLLECT(exe, a.binaries, a.datas, name=NAME, upx=False)

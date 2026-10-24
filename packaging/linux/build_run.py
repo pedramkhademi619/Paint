@@ -32,7 +32,7 @@ def render_header(brand, ver, out_name, unpacked_kb):
     text = open(HEADER).read()
     for key, value in {"__NAME__": brand["name"], "__SLUG__": brand["slug"], "__VERSION__": ver,
                        "__APP_ID__": brand["app_id"], "__TAGLINE__": brand["tagline"], "__EXE__": brand["name"],
-                       "__FILE__": out_name, "__UNPACKED_KB__": str(unpacked_kb)}.items():
+                       "__FILE__": out_name, "__SOURCE__": brand["source_url"], "__UNPACKED_KB__": str(unpacked_kb)}.items():
         text = text.replace(key, value)
     # the payload starts on the line after the marker; substituting the number does not change the line count
     return text.replace("__PAYLOAD_LINE__", str(text.count("\n") + 1))

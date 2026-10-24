@@ -1,4 +1,7 @@
-"""Paintram - launch with `python paintram.py [file ...]`."""
+"""Paintram - launch with `python paintram.py [file ...]`.
+
+Open source (GPL-3.0-or-later): https://github.com/pedramkhademi619/Paint
+"""
 import os
 import sys
 

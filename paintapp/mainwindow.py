@@ -2,14 +2,14 @@
 import os
 import sys
 
-from PyQt5.QtCore import QPointF, QRectF, QSettings, QSize, Qt
-from PyQt5.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPalette
+from PyQt5.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QUrl
+from PyQt5.QtGui import QColor, QDesktopServices, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPalette
 from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QDockWidget, QFileDialog, QGridLayout, QLabel,
-                             QMainWindow, QMessageBox, QToolButton, QUndoView, QWidget)
+                             QMainWindow, QMessageBox, QPlainTextEdit, QToolButton, QUndoView, QVBoxLayout, QWidget, QDialog)
 
 from . import __version__, imageutil
 from .ai.panel import AIPanel
-from . import brand
+from . import brand, provenance
 from .canvas import Canvas
 from .dialogs import CanvasSizeDialog, FilterDialog, NewImageDialog, ResizeDialog, ShortcutsDialog
 from .document import FMT, FLAT_EXTS, PROJECT_EXT, Document, blank_image
@@ -138,6 +138,8 @@ class MainWindow(QMainWindow):
             ai_download=A("&Download AI Model…", lambda: self.ai_panel.download()),
             help=A("&Keyboard Shortcuts", lambda: ShortcutsDialog(self).exec_(), "F1"),
             about=A("&About " + brand.NAME, self.about),
+            source=A("&Source Code on GitHub…", lambda: QDesktopServices.openUrl(QUrl(brand.SOURCE_URL))),
+            licences=A("&Licences && Credits…", self.show_licences),
             swap=A("Swap Colours", self.state.swap_colors, "X"),
             reset=A("Default Colours", self.state.reset_colors, "D"),
             smaller=A("Smaller Brush", lambda: self.step_size(-1), "["),
@@ -199,6 +201,9 @@ class MainWindow(QMainWindow):
             self.view_menu.addAction(a[k]) if k else self.view_menu.addSeparator()
         m = mb.addMenu("&Help")
         m.addAction(a["help"])
+        m.addSeparator()
+        m.addAction(a["source"])
+        m.addAction(a["licences"])
         m.addAction(a["about"])
 
     def _build_docks(self):
@@ -559,11 +564,58 @@ class MainWindow(QMainWindow):
     def toggle_fullscreen(self):
         self.showFullScreen() if self.a["fullscreen"].isChecked() else self.showNormal()
 
+    def about_box(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("About " + brand.NAME)
+        box.setIconPixmap(self.windowIcon().pixmap(64, 64))
+        box.setTextFormat(Qt.RichText)
+        box.setText(
+            "<h3>%s %s</h3><p>%s.</p>"
+            "<p>Layers, blend modes, selections, %d tools, smart shape recognition, filters and local AI: "
+            "sketch &rarr; neat redraw, text &rarr; image, restyle and inpaint.</p>"
+            "<p>Free and open source software (%s).<br>"
+            "Source code: <a href=\"%s\">%s</a><br>Author: %s</p>"
+            % (brand.NAME, __version__, brand.TAGLINE, len(TOOL_CLASSES), brand.LICENSE, brand.SOURCE_URL,
+               brand.SOURCE_URL, brand.AUTHOR))
+        box.source_button = box.addButton("Source code", QMessageBox.ActionRole)
+        box.licence_button = box.addButton("Licences…", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        return box
+
     def about(self):
-        QMessageBox.about(self, "About " + brand.NAME, "<h3>%s %s</h3><p>%s.</p>"
-                          "<p>Layers, blend modes, selections, 25 tools, filters, symmetry painting, "
-                          "local AI image generation and a project format that keeps your layers.</p>"
-                          % (brand.NAME, __version__, brand.TAGLINE))
+        box = self.about_box()
+        box.exec_()
+        if box.clickedButton() is box.source_button:
+            QDesktopServices.openUrl(QUrl(brand.SOURCE_URL))
+        elif box.clickedButton() is box.licence_button:
+            self.show_licences()
+
+    def licence_text(self):
+        """LICENSE and THIRD_PARTY_NOTICES from beside the program (installed) or the repository (source)."""
+        from .ai.models import app_root
+        here = os.path.dirname(os.path.abspath(__file__))
+        roots = [app_root(), os.path.dirname(here), getattr(sys, "_MEIPASS", ""), os.path.join(app_root(), "_internal")]
+        parts = []
+        for name in ("THIRD_PARTY_NOTICES.md", "LICENSE"):
+            for root in roots:
+                path = os.path.join(root, name) if root else ""
+                if path and os.path.isfile(path):
+                    with open(path, encoding="utf-8", errors="replace") as f:
+                        parts.append(f.read())
+                    break
+        if not parts:
+            parts.append("%s is free software (%s). Source code: %s\n" % (brand.NAME, brand.LICENSE, brand.SOURCE_URL))
+        return ("\n\n" + "=" * 78 + "\n\n").join(parts)
+
+    def show_licences(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Licences && Credits")
+        dlg.resize(760, 560)
+        view = QPlainTextEdit(self.licence_text())
+        view.setReadOnly(True)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(view)
+        dlg.exec_()
 
 
 def configure_portable(root):
@@ -595,7 +647,7 @@ def selftest():
     win.doc.undo_stack.undo()
     ok_ai, why = eng.available()
     found = models.find_models()
-    report = {"version": __version__, "drew": drew, "undo_ok": not win.doc.modified, "ai_libs": ok_ai, "ai_note": why,
+    report = {"version": __version__, "source": brand.SOURCE_URL, "drew": drew, "undo_ok": not win.doc.modified, "ai_libs": ok_ai, "ai_note": why,
               "models": found.root if found else None, "sketch_models": bool(found and found.has_smart()),
               "frozen": bool(getattr(sys, "frozen", False))}
     if ok_ai:
@@ -612,6 +664,9 @@ def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     if "--version" in argv[1:]:
         print(brand.NAME, __version__)
+        return 0
+    if "--source" in argv[1:]:
+        print(provenance.hello())
         return 0
     if "--selftest" in argv[1:]:
         return selftest()

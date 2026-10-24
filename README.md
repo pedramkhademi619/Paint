@@ -4,10 +4,12 @@ A layered image editor with **local AI**, for Windows and Linux. Draw a rough sc
 recognises what it is and redraws it neatly; generate or restyle pictures from text; all of it runs on
 your own computer, nothing is uploaded.
 
+Free and open source ([GPL-3.0-or-later](LICENSE)), by [pedramkhademi619](https://github.com/pedramkhademi619).
+
 ## Install (end users)
 
 Download the installer for your system and run it. Everything is inside it (program, Python, AI engine
-and the AI models), so nothing else is downloaded and no source code is included.
+and the AI models), so nothing else is downloaded. It installs like any commercial application.
 
 | System | File | How |
 |---|---|---|
@@ -40,8 +42,9 @@ Press `F1` in the app for all shortcuts.
 
 ## For the developer
 
-The source lives in this repository; the installers contain only compiled code
-(`packaging/protect.py` compiles the package to native modules with Cython before it is frozen).
+The source lives in this repository. The installers ship the program compiled to native modules
+(`packaging/protect.py`, Cython) so it starts fast and looks like any polished product; if you open the
+binaries anyway, they point you back here (`paintram --source` prints the note).
 
 ```bash
 pip install -r requirements.txt                 # editor only
@@ -72,8 +75,10 @@ Rename the product in one place: `paintapp/brand.py` and `packaging/brand.json`.
 
 The models are Stable Diffusion 1.5 (CreativeML OpenRAIL-M), LCM-LoRA (OpenRAIL++), ControlNet v1.1 Scribble
 (CreativeML OpenRAIL-M) and OpenAI CLIP ViT-B/32 (MIT). Read the licences before distributing the installers.
-**No NSFW/safety filter is included**; add one if you distribute Paintram to others. PyQt5 is GPL v3 (or
-commercial): check what that means for distributing a closed-source build.
+**No NSFW/safety filter is included**; add one if you distribute Paintram to others.
+PyQt5 is GPL v3, which is why Paintram itself is GPL-3.0-or-later: anyone you give an installer to must be
+able to get the source (this repository) and may redistribute it under the same terms.
+See `LICENSE` and `THIRD_PARTY_NOTICES.md`; both also ship inside the installers and in *Help > Licences*.
 
 ---
 
@@ -84,4 +89,5 @@ commercial): check what that means for distributing a closed-source build.
 قلب، دایره، ستاره، مستطیل و... را فوراً صاف و مرتب می‌کند.
 
 **نصب:** فایل نصب‌کننده‌ی سیستم خودتان را اجرا کنید. برنامه، موتور هوش مصنوعی و مدل‌ها همه داخل خودش است، چیزی دانلود
-نمی‌شود و کد در آن نیست. حذف برنامه همه‌چیز را پاک می‌کند.
+نمی‌شود. حذف برنامه همه‌چیز را پاک می‌کند. پروژه متن‌باز (GPL-3.0) است:
+https://github.com/pedramkhademi619/Paint
